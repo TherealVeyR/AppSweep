@@ -5,7 +5,7 @@ from a Flatpak sandbox when it requires a real Fedora host.
 
 ## Code and automated verification
 
-- [ ] Working tree is clean and the intended release commit is checked out.
+- [x] Working tree is clean and the intended release commit is checked out.
 - [x] `python3 -m compileall -q appssweep tests` succeeds.
 - [x] `python3 -m unittest discover -v` passes without Rich.
 - [x] The full suite passes in a venv with `rich` installed.
@@ -78,8 +78,8 @@ Record the Fedora version and tool versions in `PROGRESS.md`.
 
 ## Repository and publication
 
-- [ ] `git status` is clean after the final verification run.
-- [ ] No secrets, credentials, personal scan data, audit logs, reports, build
+- [x] `git status` is clean after the final verification run.
+- [x] No secrets, credentials, personal scan data, audit logs, reports, build
       artifacts, or virtual environments are tracked.
 - [x] `../taskvault` remains untouched.
 - [x] No history was rewritten.

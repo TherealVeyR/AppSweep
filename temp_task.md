@@ -26,7 +26,10 @@ sandbox.
 - [x] Inspected the project; no Git repository existed and no accidental
   project-name misspelling was present in user-facing text.
 - [x] Initialized Git in `appssweep/` on `main` with a local identity and the
-  conventional root commit `feat: establish AppSweep release candidate`.
+  conventional root commit `feat: establish AppSweep release candidate`
+  (`dee1126`).
+- [x] Committed the FULL-scan, Trash-preview, and regression-test milestone as
+  `feat: expand full scan coverage and trash previews` (`9a98912`).
 - [x] Expanded `.gitignore` and removed generated build/test artifacts before
   staging.
 - [x] Added `CHANGELOG.md`, `CONTRIBUTING.md`, and `RELEASE_CHECKLIST.md`.
@@ -60,14 +63,13 @@ sandbox.
 
 ## Next move
 
-1. Commit the staged second milestone (FULL-scan coverage, Trash previews, and
-   regression tests) after the final diff review.
-2. Re-run the smoke/package checks after that commit and confirm a clean working
-   tree.
-3. Continue from the remaining `TODO.md` P1 host-validation items; do not claim
-   real Fedora coverage from mock tests.
-4. Keep the audit-log retention policy and the unbuilt wheel/sdist gate clearly
+1. The working tree is clean after the final smoke/package checks; continue from
+   the remaining `TODO.md` P1 host-validation items.
+2. Do not claim real Fedora coverage from mock tests.
+3. Keep the audit-log retention policy and the unbuilt wheel/sdist gate clearly
    marked incomplete.
+4. Re-run the full suite after any host-driven fix and record the real Fedora
+   and tool versions in `PROGRESS.md`.
 
 ## Safety reminders
 
