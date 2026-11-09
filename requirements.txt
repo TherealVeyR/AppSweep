@@ -1,0 +1,10 @@
+# AppSweep has no required third-party packages.
+#
+# The terminal interface detects and uses Rich automatically when it is
+# installed, but the built-in ANSI interface is complete without it.
+#
+# Install the optional Rich rendering with:
+#     pip install ".[rich]"
+#
+# Or uncomment the requirement below before running pip install -r.
+# rich>=13.0

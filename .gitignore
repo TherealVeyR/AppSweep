@@ -1,0 +1,61 @@
+# Python bytecode and import caches
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build and distribution artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+wheels/
+pip-wheel-metadata/
+
+# Test, coverage, and lint caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+
+# IDE and editor temporary files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Generated scan results, reports, and audit logs
+reports/
+report.json
+report.csv
+*.report.json
+*.report.csv
+scan-*.json
+scan-*.csv
+cleanup-audit.log
+*.log
+
+# Temporary and machine-specific data
+temp/
+tmp/
+*.tmp
