@@ -30,6 +30,8 @@ sandbox.
   (`dee1126`).
 - [x] Committed the FULL-scan, Trash-preview, and regression-test milestone as
   `feat: expand full scan coverage and trash previews` (`9a98912`).
+- [x] Recorded wheel-build and host-tool evidence as
+  `docs: record wheel build and host tool limits` (`d5591f9`).
 - [x] Expanded `.gitignore` and removed generated build/test artifacts before
   staging.
 - [x] Added `CHANGELOG.md`, `CONTRIBUTING.md`, and `RELEASE_CHECKLIST.md`.
@@ -47,10 +49,12 @@ sandbox.
   contents.
 - [x] Added regression coverage for audit privacy/failures, dry-run, full-root
   discovery, Trash previews, hard links, and duplicate personal paths.
+- [x] Added edge-case coverage for `--refresh-metadata` wiring, export paths
+  with spaces or a read-only parent, 64-column rendering, and Rich fallback.
 
 ## Verification state
 
-- 119 tests total: 118 pass + 1 Rich-only skip without Rich; 119/119 with Rich.
+- 124 tests total: 123 pass + 1 Rich-only skip without Rich; 124/124 with Rich.
 - `python3 -m compileall -q appssweep tests`: passes.
 - Ruff in the Rich venv: passes.
 - Isolated QUICK, CUSTOM, FULL, and `--dry-run` smoke scans: pass.
@@ -66,10 +70,10 @@ sandbox.
 
 ## Next move
 
-1. The working tree is clean after the final smoke/package checks; continue from
-   the remaining `TODO.md` P1 host-validation items.
+1. Commit the remaining edge-case coverage; then continue from the remaining
+   `TODO.md` P1 host-validation items.
 2. Do not claim real Fedora coverage from mock tests.
-3. Keep the audit-log retention policy and the unbuilt wheel/sdist gate clearly
+3. Keep the audit-log retention policy and the automated packaging test clearly
    marked incomplete.
 4. Re-run the full suite after any host-driven fix and record the real Fedora
    and tool versions in `PROGRESS.md`.

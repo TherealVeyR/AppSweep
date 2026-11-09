@@ -13,6 +13,7 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
+from appssweep.categories import CleanupDiscovery
 from appssweep.cli import (
     UsageError,
     build_parser,
@@ -118,6 +119,38 @@ class CliTests(unittest.TestCase):
         setup = build_scan_setup(self.args(mode="full", paths=[]), home=str(self.home))
         self.assertEqual(setup.mode, "full")
         self.assertTrue(setup.config.roots)
+
+    def test_refresh_metadata_flag_reaches_discovery(self) -> None:
+        for extra_args, expected in (([], False), (["--refresh-metadata"], True)):
+            with self.subTest(extra_args=extra_args):
+                args = [
+                    "--mode",
+                    "custom",
+                    "--path",
+                    str(self.scan_root),
+                    "--min-size",
+                    "1M",
+                    "--categories",
+                    "cache",
+                    "--report-only",
+                    "--no-color",
+                    *extra_args,
+                ]
+                stdout = io.StringIO()
+                with (
+                    patch(
+                        "appssweep.cli.discover_cleanup",
+                        return_value=CleanupDiscovery(),
+                    ) as discovery,
+                    contextlib.redirect_stdout(stdout),
+                ):
+                    code = main(args)
+                self.assertEqual(code, 0, stdout.getvalue())
+                discovery.assert_called_once()
+                self.assertIs(
+                    discovery.call_args.kwargs["allow_metadata_refresh"],
+                    expected,
+                )
 
     def test_report_only_main_writes_json_without_prompts(self) -> None:
         file = self.scan_root / "large.bin"

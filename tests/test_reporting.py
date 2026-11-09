@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -139,6 +140,25 @@ class ReportingTests(unittest.TestCase):
     def test_write_export_rejects_stdout_marker(self) -> None:
         with self.assertRaises(ExportError):
             write_export("-", "{}")
+
+    def test_write_export_handles_a_path_with_spaces(self) -> None:
+        destination = self.root / "reports with spaces" / "scan report.json"
+        write_export(str(destination), render_json(self.analysis.report))
+        self.assertTrue(destination.exists())
+        self.assertIn("AppSweep", destination.read_text(encoding="utf-8"))
+
+    def test_write_export_reports_a_read_only_parent_directory(self) -> None:
+        if os.geteuid() == 0:
+            self.skipTest("permission checks do not apply to root")
+        parent = self.root / "read-only-reports"
+        parent.mkdir()
+        parent.chmod(0o500)
+        try:
+            with self.assertRaises(ExportError):
+                write_export(str(parent / "report.json"), "{}")
+        finally:
+            parent.chmod(0o700)
+        self.assertFalse((parent / "report.json").exists())
 
     def test_file_rows_helper(self) -> None:
         rows = file_rows_for_csv([self.snapshot])

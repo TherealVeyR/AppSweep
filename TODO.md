@@ -61,16 +61,8 @@ No known P0 items.
 
 ## P2 — hardening and coverage
 
-- [ ] Add a CLI test for `--refresh-metadata` reaching discovery without
-      changing the default cache-only preview behavior.
 - [ ] Report free-space before/after for each affected filesystem when a plan
       spans more than one mount, instead of only the scan's primary filesystem.
-- [ ] Verify `--json` and `--csv` to a path with an existing read-only file,
-      a missing parent, and a path containing spaces.
-- [ ] Check terminal rendering at narrow widths (for example 64 columns) and
-      with very long unbroken file names.
-- [ ] Confirm Rich fallback when Rich is installed but its console raises
-      during output; the ANSI path should take over without data loss.
 - [ ] Add a packaging test that builds a wheel and verifies the console script
       and package contents.
 - [ ] Add audit-log rotation or a documented retention policy; the current log

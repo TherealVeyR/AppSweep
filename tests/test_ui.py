@@ -87,6 +87,33 @@ class FileNumberingTests(unittest.TestCase):
         self.assertIn(self.report.personal_files[0].filename, text)
         self.assertIn(self.report.personal_files[-1].filename, text)
 
+    def test_narrow_width_is_clamped_and_renders_long_names(self) -> None:
+        long_name = "a" * 180 + ".bin"
+        path = write_file(self.root / long_name, 128)
+        output = io.StringIO()
+        ui = UI(stream=output, color=False, width=20)
+
+        ui.files([snapshot_for(path)])
+
+        text = output.getvalue()
+        self.assertEqual(ui.width, 64)
+        self.assertIn(long_name, text)
+        self.assertIn("Path:", text)
+
+    def test_rich_print_failure_falls_back_to_plain_stream(self) -> None:
+        class BrokenRich:
+            def print(self, *args, **kwargs) -> None:
+                raise RuntimeError("render failed")
+
+        output = io.StringIO()
+        ui = UI(stream=output, color=False, width=64)
+        ui._rich = BrokenRich()  # type: ignore[assignment]
+
+        ui.print("fallback text")
+
+        self.assertEqual(output.getvalue(), "fallback text\n")
+        self.assertIsNone(ui._rich)
+
 
 if __name__ == "__main__":
     unittest.main()

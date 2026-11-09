@@ -138,18 +138,19 @@ python3 -m unittest discover -v
 
 Result on 2026-11-09:
 
-- **119 tests total**
-- **118 passed, 1 skipped** without Rich
-- **119 passed** in a venv with Rich installed
+- **124 tests total**
+- **123 passed, 1 skipped** without Rich
+- **124 passed** in a venv with Rich installed
 - **0 failures**
 
 The suite covers selection parsing, filesystem measurement, scanner traversal,
 symlinks, permissions, mount boundaries, hardlink accounting, cancellation,
 full-mode root discovery, safety/authorization, cache override protection,
 package and Flatpak detection, runner safety, cleanup engine behavior,
-reporting/export, CLI flows, CSV formula injection, analyzer overlap handling,
-exact top-50 display/selection numbering, cleanup audit-log privacy and refusal
-paths, Trash content previews, and the `--dry-run` alias.
+reporting/export, CLI flows, refresh-metadata wiring, CSV formula injection,
+analyzer overlap handling, exact top-50 display/selection numbering,
+cleanup audit-log privacy and refusal paths, Trash content previews,
+narrow-terminal rendering, Rich failure fallback, and the `--dry-run` alias.
 
 ### Manual smoke tests
 
@@ -159,7 +160,7 @@ paths, Trash content previews, and the `--dry-run` alias.
   and file.
 - [x] `./bin/appssweep --mode full` in the Flatpak sandbox: exit 0, correct
   sandbox limitation, isolated home scanned.
-- [x] `python3 -m unittest discover` in a venv with Rich: all 119 tests pass.
+- [x] `python3 -m unittest discover` in a venv with Rich: all 124 tests pass.
 - [x] `ruff check appssweep tests` in the Rich venv: all checks pass
   (optional lint; Ruff is not a runtime dependency).
 - [x] `pip install .` in a clean venv: console script reports `appssweep 1.0.0`
@@ -178,6 +179,12 @@ paths, Trash content previews, and the `--dry-run` alias.
 - [x] Cleanup engine test rejects duplicate personal-file paths in a plan.
 - [x] Trash tests verify size, top-level count, example contents, and the
   no-`gio` report-only path.
+- [x] CLI test verifies `--refresh-metadata` reaches discovery and the default
+  remains false.
+- [x] Export tests cover a missing parent, spaces in the report path, and a
+  read-only parent directory with a clear `ExportError`.
+- [x] UI tests cover 64-column rendering with a long unbroken name and fallback
+  to the plain stream when the Rich console raises.
 
 ## Known limitations and unverified areas
 

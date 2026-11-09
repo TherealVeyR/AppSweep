@@ -126,9 +126,9 @@ python3 -m unittest discover -v
 
 Current baseline (2026-11-09):
 
-- 119 tests total.
-- 118 pass and 1 Rich-only test is skipped when Rich is not installed.
-- All 119 pass in a venv with `rich` installed.
+- 124 tests total.
+- 123 pass and 1 Rich-only test is skipped when Rich is not installed.
+- All 124 pass in a venv with `rich` installed.
 
 Rules for tests:
 
