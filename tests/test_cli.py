@@ -245,6 +245,44 @@ class CliTests(unittest.TestCase):
         self.assertIn('"cleanup_started"', audit_text)
         self.assertIn('"cleanup_finished"', audit_text)
 
+    def test_interactive_cleanup_warns_but_completes_if_audit_log_is_unsafe(
+        self,
+    ) -> None:
+        cache_app = self.home / ".cache" / "TestApp"
+        cache_app.mkdir(parents=True)
+        cache_file = cache_app / "cache.bin"
+        cache_file.write_bytes(b"c" * (2 * 1024 * 1024))
+        unsafe_state = self.home / ".local" / "state" / "appssweep"
+        unsafe_state.mkdir(parents=True)
+        unsafe_state.chmod(0o777)
+
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO("1\nCLEAN\n")
+        stdout = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stdout):
+                code = main(
+                    [
+                        "--mode",
+                        "custom",
+                        "--path",
+                        str(self.scan_root),
+                        "--min-size",
+                        "1M",
+                        "--categories",
+                        "cache",
+                        "--interactive",
+                        "--no-color",
+                    ]
+                )
+        finally:
+            sys.stdin = old_stdin
+        output = stdout.getvalue()
+        self.assertEqual(code, 0, output)
+        self.assertFalse(cache_file.exists(), output)
+        self.assertIn("Cleanup audit log was not written", output)
+        self.assertFalse((unsafe_state / "cleanup-audit.log").exists())
+
     def test_interactive_cancel_makes_no_changes(self) -> None:
         cache_app = self.home / ".cache" / "TestApp"
         cache_app.mkdir(parents=True)

@@ -34,8 +34,10 @@ No known P0 items.
   - [ ] `pkexec`: one-command-at-a-time approval and failure/cancel handling.
 
 - [ ] **Run a real FULL scan on a normal Fedora installation.**
-  - [ ] Confirm `/home`, `/var`, `/usr`, `/boot`, caches, logs, and Trash are
-        covered without double counting.
+  - [ ] Confirm `/home`, `/var`, `/usr`, `/boot`, `/opt`, `/etc`, `/root`,
+        `/srv`, caches, logs, and Trash are covered without double counting.
+  - [ ] Confirm a read-only `/usr` image and the rpm-ostree/Silverblue
+        `/var/home` layout are represented on an immutable system.
   - [ ] Confirm `/tmp` temporary-file findings are reported without counting a
         memory-backed tmpfs as disk storage.
   - [ ] Confirm virtual, network, and external mounts are skipped with clear
@@ -61,9 +63,6 @@ No known P0 items.
 
 - [ ] Add a CLI test for `--refresh-metadata` reaching discovery without
       changing the default cache-only preview behavior.
-- [ ] Add a test for duplicate cleanup keys and duplicate personal-file paths
-      in an execution plan.
-- [ ] Add a test for a file changing between validation and permanent unlink.
 - [ ] Report free-space before/after for each affected filesystem when a plan
       spans more than one mount, instead of only the scan's primary filesystem.
 - [ ] Verify `--json` and `--csv` to a path with an existing read-only file,
@@ -74,8 +73,6 @@ No known P0 items.
       during output; the ANSI path should take over without data loss.
 - [ ] Add a packaging test that builds a wheel and verifies the console script
       and package contents.
-- [ ] Add a CLI regression test for an unsafe audit-log directory: cleanup
-      should still complete and the warning should be visible.
 - [ ] Add audit-log rotation or a documented retention policy; the current log
       is append-only and grows without a built-in limit.
 - [ ] Decide and add a project license before public distribution.

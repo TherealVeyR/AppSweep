@@ -37,6 +37,9 @@ largest personal files, supports numbered selection, requires an explicit
 - [x] Quick scan covers common personal folders; full scan follows the live
   installation while skipping virtual, network, and external mounts; custom
   scan requires explicit `--path` roots.
+- [x] FULL scan includes separately mounted local `/opt`, `/etc`, `/root`,
+  `/srv`, and disk-backed `/tmp`, plus a read-only `/usr` image on immutable
+  Fedora systems.
 - [x] Flatpak sandbox detection and limitation reporting.
 
 ### Cleanup discovery and reporting
@@ -46,7 +49,11 @@ largest personal files, supports numbered selection, requires an explicit
 - [x] Flatpak unused-runtime discovery with conservative estimate label.
 - [x] User and app cache discovery, including Flatpak app caches.
 - [x] Journal and rotated-log discovery.
-- [x] Trash analysis.
+- [x] Trash analysis with size, top-level count, and up to eight example
+  contents shown before emptying.
+- [x] Trash emptying requires explicit selection and the normal `CLEAN`
+  confirmation; missing `gio` leaves Trash report-only with no direct-delete
+  fallback.
 - [x] Report-only findings for data that must not be auto-cleaned.
 - [x] Cleanup item numbering by group, size, and title.
 - [x] Overlap detection and personal-file/category de-duplication.
@@ -131,18 +138,18 @@ python3 -m unittest discover -v
 
 Result on 2026-11-09:
 
-- **113 tests total**
-- **112 passed, 1 skipped** without Rich
-- **113 passed** in a venv with Rich installed
+- **119 tests total**
+- **118 passed, 1 skipped** without Rich
+- **119 passed** in a venv with Rich installed
 - **0 failures**
 
 The suite covers selection parsing, filesystem measurement, scanner traversal,
 symlinks, permissions, mount boundaries, hardlink accounting, cancellation,
-safety/authorization, cache override protection, package and Flatpak detection,
-runner safety, cleanup engine behavior, reporting/export, CLI flows, CSV
-formula injection, analyzer overlap handling, exact top-50 display/selection
-numbering, cleanup audit-log privacy and refusal paths, and the `--dry-run`
-alias.
+full-mode root discovery, safety/authorization, cache override protection,
+package and Flatpak detection, runner safety, cleanup engine behavior,
+reporting/export, CLI flows, CSV formula injection, analyzer overlap handling,
+exact top-50 display/selection numbering, cleanup audit-log privacy and refusal
+paths, Trash content previews, and the `--dry-run` alias.
 
 ### Manual smoke tests
 
@@ -152,7 +159,7 @@ alias.
   and file.
 - [x] `./bin/appssweep --mode full` in the Flatpak sandbox: exit 0, correct
   sandbox limitation, isolated home scanned.
-- [x] `python3 -m unittest discover` in a venv with Rich: all 113 tests pass.
+- [x] `python3 -m unittest discover` in a venv with Rich: all 119 tests pass.
 - [x] `ruff check appssweep tests` in the Rich venv: all checks pass
   (optional lint; Ruff is not a runtime dependency).
 - [x] `pip install .` in a clean venv: console script reports `appssweep 1.0.0`
@@ -163,6 +170,11 @@ alias.
   records, symlink refusal, hard-link refusal, and unsafe-directory refusal.
 - [x] Interactive CLI test verifies started/finished audit records after a
   confirmed temporary cache cleanup.
+- [x] CLI test verifies an unsafe audit-log directory produces a warning while
+  the confirmed temporary cache cleanup still completes.
+- [x] Cleanup engine test rejects duplicate personal-file paths in a plan.
+- [x] Trash tests verify size, top-level count, example contents, and the
+  no-`gio` report-only path.
 
 ## Known limitations and unverified areas
 

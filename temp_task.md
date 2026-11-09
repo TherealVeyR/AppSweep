@@ -21,28 +21,53 @@ without Rich; 107/107 with Rich), Ruff clean, and no known code bugs in tested
 paths. Real Fedora host-tool validation was still blocked by the Flatpak
 sandbox.
 
-## New active task from the steering directive
+## Completed under the steering directive
 
-Bring AppSweep to a high release-quality standard without discarding working
-code:
+- [x] Inspected the project; no Git repository existed and no accidental
+  project-name misspelling was present in user-facing text.
+- [x] Initialized Git in `appssweep/` on `main` with a local identity and the
+  conventional root commit `feat: establish AppSweep release candidate`.
+- [x] Expanded `.gitignore` and removed generated build/test artifacts before
+  staging.
+- [x] Added `CHANGELOG.md`, `CONTRIBUTING.md`, and `RELEASE_CHECKLIST.md`.
+- [x] Updated `AGENTS.md`, `PROGRESS.md`, `TODO.md`, `ARCHITECTURE.md`, and
+  `README.md` for audit logging, dry-run, Git, release gates, and host limits.
+- [x] Added private append-only cleanup audit logging (`appssweep/audit.py`)
+  with started/finished/refused records, `0700`/`0600` privacy, symlink,
+  hard-link, FIFO, and unsafe-directory refusal, plus safe write-failure
+  warnings.
+- [x] Added `--dry-run` as an explicit alias for `--report-only`.
+- [x] Extended FULL-scan discovery to separately mounted local `/opt`, `/etc`,
+  `/root`, `/srv`, and disk-backed `/tmp`, plus read-only `/usr` images on
+  immutable Fedora systems.
+- [x] Added Trash previews with size, top-level count, and up to eight example
+  contents.
+- [x] Added regression coverage for audit privacy/failures, dry-run, full-root
+  discovery, Trash previews, hard links, and duplicate personal paths.
 
-1. Inspect the current project, Git state, modules, tests, and documentation.
-2. Initialize Git safely inside the AppSweep project if no repository exists.
-3. Correct any `AppsSweep` branding to the official `AppSweep` spelling.
-4. Expand persistent project memory with `CHANGELOG.md`, `CONTRIBUTING.md`, and
-   updated `AGENTS.md` Git/testing/safety rules.
-5. Identify and implement remaining release gaps, prioritizing:
-   - full-filesystem scanner reliability;
-   - exact top-50 reporting;
-   - numbered interactive selection;
-   - safe cleanup discovery and execution;
-   - audit logging, dry-run support, and race-condition protection;
-   - tests, packaging, and documentation.
-6. Run the full verification suite, review the diff, and create verified
-   conventional commits at meaningful milestones.
-7. Never touch `../taskvault`, never use a shell in the product, never run the
-   app as root, and never execute destructive operations against real user
-   files during development or testing.
+## Verification state
+
+- 119 tests total: 118 pass + 1 Rich-only skip without Rich; 119/119 with Rich.
+- `python3 -m compileall -q appssweep tests`: passes.
+- Ruff in the Rich venv: passes.
+- Isolated QUICK, CUSTOM, FULL, and `--dry-run` smoke scans: pass.
+- JSON/CSV exports: valid, mode `0600`, and report-only runs do not create an
+  audit log.
+- `pip install --force-reinstall --no-deps .` in a clean venv: console script
+  reports `appssweep 1.0.0` and completes a quick scan.
+- `../taskvault` remains untouched.
+- Real Fedora host tools remain unavailable in this Flatpak sandbox.
+
+## Next move
+
+1. Commit the staged second milestone (FULL-scan coverage, Trash previews, and
+   regression tests) after the final diff review.
+2. Re-run the smoke/package checks after that commit and confirm a clean working
+   tree.
+3. Continue from the remaining `TODO.md` P1 host-validation items; do not claim
+   real Fedora coverage from mock tests.
+4. Keep the audit-log retention policy and the unbuilt wheel/sdist gate clearly
+   marked incomplete.
 
 ## Safety reminders
 

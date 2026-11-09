@@ -72,6 +72,14 @@ LOCAL_FSTYPES = {
     "zfs",
 }
 
+# Read-only image filesystems used by immutable Fedora deployments. They are
+# local storage even though they are not in the read/write local set above.
+READ_ONLY_IMAGE_FSTYPES = {
+    "squashfs",
+    "erofs",
+    "composefs",
+}
+
 
 # Filesystem paths that should never be traversed by a storage scan.
 BASE_EXCLUDES = (
@@ -161,19 +169,22 @@ def discover_installation_roots(
     home: str | None = None,
     *,
     sandboxed: bool | None = None,
+    mounts: Iterable[MountInfo] | None = None,
 ) -> tuple[list[str], list[str], list[MountInfo]]:
     """Return safe roots for a full installation scan plus explanatory notes.
 
     The root filesystem always comes from the live mount table. Commonly
-    split Fedora filesystems (/home, /var, /usr, /boot) are included only when
-    they are separate local filesystems. External and network mounts are not
+    split Fedora filesystems (/home, /var, /usr, /boot, /opt, /etc, /root,
+    /srv, and disk-backed /tmp) are included only when they are separate local
+    filesystems. A read-only /usr image on an immutable Fedora system is
+    included for storage analysis. External and network mounts are not
     included automatically.
     """
 
     home = os.path.abspath(os.path.expanduser(home or str(Path.home())))
     if sandboxed is None:
         sandboxed = is_flatpak_sandbox()
-    mounts = read_mountinfo()
+    mount_list = list(mounts) if mounts is not None else read_mountinfo()
     notes: list[str] = []
 
     if sandboxed:
@@ -183,14 +194,14 @@ def discover_installation_roots(
             "folders are scanned."
         )
         roots = [home] if os.path.isdir(home) else []
-        return roots, notes, mounts
+        return roots, notes, mount_list
 
     try:
         root_dev = os.stat("/").st_dev
     except OSError:
         root_dev = 0
     roots = ["/"]
-    home_mount = mount_for_path(home, mounts)
+    home_mount = mount_for_path(home, mount_list)
     if home_mount and home_mount.fstype.lower() in VIRTUAL_FSTYPES:
         notes.append(
             f"Home ({home}) is on a virtual filesystem ({home_mount.fstype}); "
@@ -208,10 +219,10 @@ def discover_installation_roots(
                 f"/home is a separate local {home_mount.fstype} filesystem and is included."
             )
 
-    for candidate in ("/var", "/usr", "/boot"):
+    for candidate in ("/var", "/usr", "/boot", "/opt", "/etc", "/root", "/srv", "/tmp"):
         if not os.path.isdir(candidate):
             continue
-        mount = mount_for_path(candidate, mounts)
+        mount = mount_for_path(candidate, mount_list)
         if not mount or mount.mount_point != candidate:
             continue
         try:
@@ -222,6 +233,17 @@ def discover_installation_roots(
             is_within(candidate, existing) and existing != "/" for existing in roots
         )
         if already_covered:
+            continue
+        read_only_usr = (
+            candidate == "/usr"
+            and mount.fstype.lower() in READ_ONLY_IMAGE_FSTYPES
+        )
+        if read_only_usr:
+            roots.append(candidate)
+            notes.append(
+                f"{candidate} is a read-only {mount.fstype} image and is included "
+                "for storage analysis."
+            )
             continue
         if mount.fstype.lower() in VIRTUAL_FSTYPES or is_network_filesystem(mount.fstype):
             notes.append(f"{candidate} is {mount.fstype}; skipped as a separate virtual/network mount.")

@@ -7,6 +7,8 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from appssweep.filesystem import (
     MountInfo,
@@ -138,6 +140,75 @@ class FilesystemTests(unittest.TestCase):
         )
         self.assertEqual(roots, [str(self.root.absolute())])
         self.assertTrue(any("Flatpak sandbox" in note for note in notes))
+
+    def test_installation_roots_include_separate_system_mounts(self) -> None:
+        mounts = [
+            MountInfo("/", "/dev/root", "btrfs"),
+            MountInfo("/var", "/dev/var", "ext4"),
+            MountInfo("/usr", "composefs", "composefs"),
+            MountInfo("/boot", "/dev/boot", "vfat"),
+            MountInfo("/opt", "/dev/opt", "ext4"),
+            MountInfo("/etc", "/dev/etc", "ext4"),
+            MountInfo("/root", "/dev/root-home", "ext4"),
+            MountInfo("/srv", "/dev/srv", "ext4"),
+            MountInfo("/tmp", "/dev/tmp", "ext4"),
+        ]
+        devices = {
+            "/": 1,
+            "/var": 2,
+            "/usr": 3,
+            "/boot": 4,
+            "/opt": 5,
+            "/etc": 6,
+            "/root": 7,
+            "/srv": 8,
+            "/tmp": 9,
+        }
+        existing = set(devices)
+
+        def fake_isdir(path: str) -> bool:
+            return path in existing
+
+        def fake_stat(path: str) -> SimpleNamespace:
+            return SimpleNamespace(st_dev=devices[path])
+
+        with (
+            patch("appssweep.filesystem.os.path.isdir", side_effect=fake_isdir),
+            patch("appssweep.filesystem.os.stat", side_effect=fake_stat),
+        ):
+            roots, notes, _mounts = discover_installation_roots(
+                "/home/test", sandboxed=False, mounts=mounts
+            )
+
+        self.assertEqual(set(roots), set(devices))
+        self.assertTrue(any("read-only composefs image" in note for note in notes))
+        self.assertTrue(any("/opt is a separate local ext4" in note for note in notes))
+        self.assertTrue(any("/tmp is a separate local ext4" in note for note in notes))
+
+    def test_installation_roots_skip_separate_tmpfs_tmp(self) -> None:
+        mounts = [
+            MountInfo("/", "/dev/root", "btrfs"),
+            MountInfo("/tmp", "tmpfs", "tmpfs"),
+        ]
+        devices = {"/": 1, "/tmp": 2}
+        existing = {"/", "/tmp"}
+
+        with (
+            patch(
+                "appssweep.filesystem.os.path.isdir",
+                side_effect=lambda path: path in existing,
+            ),
+            patch(
+                "appssweep.filesystem.os.stat",
+                side_effect=lambda path: SimpleNamespace(st_dev=devices[path]),
+            ),
+        ):
+            roots, notes, _mounts = discover_installation_roots(
+                "/home/test", sandboxed=False, mounts=mounts
+            )
+
+        self.assertNotIn("/tmp", roots)
+        self.assertTrue(any("/tmp is tmpfs; skipped" in note for note in notes))
 
     def test_safe_terminal_text_escapes_control_characters(self) -> None:
         rendered = safe_terminal_text("a\x1b[31mred\nline\twith tab")

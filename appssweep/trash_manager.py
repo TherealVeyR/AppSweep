@@ -58,11 +58,17 @@ def discover_trash(runner: CommandRunner | None = None) -> TrashDiscovery:
 
     files_dir = os.path.join(trash_root, "files")
     file_count = 0
+    example_names: list[str] = []
     try:
         if os.path.isdir(files_dir) and not os.path.islink(files_dir):
-            file_count = sum(1 for _ in os.scandir(files_dir))
+            with os.scandir(files_dir) as entries:
+                for entry in entries:
+                    file_count += 1
+                    if len(example_names) < 8:
+                        example_names.append(entry.name)
     except OSError:
         file_count = 0
+        example_names = []
 
     discovery.trash_root = trash_root
     discovery.total_size = measurement.logical_size
@@ -84,6 +90,17 @@ def discover_trash(runner: CommandRunner | None = None) -> TrashDiscovery:
         return discovery
 
     args = (gio, "trash", "--empty")
+    details = [
+        f"Location: {trash_root}",
+        f"Top-level items: {file_count}",
+        "This action permanently deletes the contents.",
+    ]
+    if example_names:
+        more = " (more not shown)" if file_count > len(example_names) else ""
+        details.insert(
+            2,
+            "Examples: " + ", ".join(example_names) + more,
+        )
     discovery.items.append(
         CleanupItem(
             key="user-trash",
@@ -108,13 +125,13 @@ def discover_trash(runner: CommandRunner | None = None) -> TrashDiscovery:
             command_args=(args,),
             needs_admin=False,
             estimated=False,
-            details=(
-                f"Location: {trash_root}",
-                f"Top-level items: {file_count}",
-                "This action permanently deletes the contents.",
-            ),
+            details=tuple(details),
             preview=format_command(args),
-            metadata={"trash_root": trash_root, "file_count": file_count},
+            metadata={
+                "trash_root": trash_root,
+                "file_count": file_count,
+                "example_names": tuple(example_names),
+            },
         )
     )
     discovery.notes.append(

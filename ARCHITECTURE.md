@@ -153,8 +153,10 @@ explicitly authorized.
 - **QUICK** uses existing common personal folders under home. If none exist, it
   falls back to the home folder itself.
 - **FULL** starts from `/`, adds separately mounted local `/home`, `/var`,
-  `/usr`, and `/boot` when appropriate, and removes duplicate nested roots on
-  the same device. It skips virtual, network, and external mounts.
+  `/usr`, `/boot`, `/opt`, `/etc`, `/root`, `/srv`, and disk-backed `/tmp`
+  when appropriate, and removes duplicate nested roots on the same device. A
+  read-only `/usr` image on an immutable Fedora system is included for storage
+  analysis. It skips virtual, network, and external mounts.
 - **CUSTOM** requires one or more existing `--path` values. A custom root inside
   a normally skipped mount is allowed because the user explicitly selected it.
 
@@ -288,6 +290,8 @@ The three groups are fixed and user-facing:
 Every cleanup item explains what it is, where it is, why it appears, what
 happens if cleaned, and how AppSweep cleans it. Estimated sizes are labeled as
 estimates. Report-only findings are shown separately and cannot be selected.
+Trash previews include the size, top-level count, and up to eight example item
+names before the user can select the emptying action.
 
 The UI uses ANSI by default. If Rich is importable and colour is enabled, Rich
 renders the same text. If Rich raises during output, the UI disables Rich and
@@ -393,6 +397,8 @@ Tests use only `unittest`, temporary directories, and fakes:
   variables.
 - Audit tests use temporary state directories and verify privacy, JSON-lines
   records, symlink refusal, and unsafe-directory refusal.
+- Trash tests verify size, count, example contents, and the no-`gio`,
+  report-only path.
 - UI tests verify exact top-50 numbering and optional Rich rendering.
 
 The suite never performs destructive cleanup outside temporary test roots.

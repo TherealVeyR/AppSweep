@@ -126,9 +126,9 @@ python3 -m unittest discover -v
 
 Current baseline (2026-11-09):
 
-- 113 tests total.
-- 112 pass and 1 Rich-only test is skipped when Rich is not installed.
-- All 113 pass in a venv with `rich` installed.
+- 119 tests total.
+- 118 pass and 1 Rich-only test is skipped when Rich is not installed.
+- All 119 pass in a venv with `rich` installed.
 
 Rules for tests:
 
@@ -194,7 +194,9 @@ coverage.
 
 The scanner deliberately skips tmpfs, virtual, network, and external mounts
 during a full storage scan. A custom scan root inside such a mount is allowed
-because the user explicitly selected it. Temporary data under `/tmp` and
+because the user explicitly selected it. Separately mounted local `/opt`,
+`/etc`, `/root`, `/srv`, and disk-backed `/tmp` are included, as is a read-only
+`/usr` image on immutable Fedora systems. Temporary data under `/tmp` and
 `/var/tmp` is still analyzed by the report-only temporary-file discovery step;
 memory-backed tmpfs is not counted as disk storage.
 

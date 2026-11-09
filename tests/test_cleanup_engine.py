@@ -105,6 +105,14 @@ class CleanupEngineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.engine().execute_plan(plan, auth)
 
+    def test_duplicate_personal_paths_are_rejected(self) -> None:
+        file = write_file(self.home / "Documents" / "movie.mp4", 1024)
+        snapshot = snapshot_for(file)
+        plan = CleanupPlan(personal_files=[snapshot, snapshot])
+        auth = make_authorization([], [snapshot], permanent_personal=False)
+        with self.assertRaises(ValueError):
+            self.engine().execute_plan(plan, auth)
+
     def test_personal_file_uses_gio_trash_not_direct_delete(self) -> None:
         file = write_file(self.home / "Documents" / "movie.mp4", 1024)
         snapshot = snapshot_for(file)

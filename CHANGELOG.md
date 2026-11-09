@@ -15,6 +15,11 @@ not been published to a package registry.
   result or refusal.
 - `--dry-run` as an explicit alias for `--report-only`. It never offers or
   executes cleanup.
+- FULL scan root discovery now includes separately mounted local `/opt`, `/etc`,
+  `/root`, `/srv`, and disk-backed `/tmp`, plus a read-only `/usr` image on
+  immutable Fedora systems.
+- Trash previews now show the top-level item count and up to eight example
+  contents before emptying.
 - Persistent release documentation: `CHANGELOG.md`, `CONTRIBUTING.md`, and
   `RELEASE_CHECKLIST.md`.
 - Git repository hygiene rules for generated reports, test state, secrets,

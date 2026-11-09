@@ -15,7 +15,8 @@ the confirmation prompt.
 
 - Measures disk use from the real filesystem, not a stale cache.
 - Scans `/home`, `/var`, `/usr`, caches, logs, Trash, package data, and other
-  local storage.
+  local storage, including separately mounted system paths and a read-only
+  `/usr` image on immutable Fedora systems.
 - Skips virtual filesystems (`/proc`, `/sys`, `/dev`, `/run`, tmpfs), network
   shares, and external mounts during a full scan. `/tmp` and `/var/tmp` are
   still examined for report-only temporary-file findings.
@@ -24,6 +25,7 @@ the confirmation prompt.
 - Groups cleanup opportunities into **SAFE**, **CAREFUL**, and **REBUILD**.
 - Reports permission problems and deliberately skipped paths instead of
   pretending the scan was complete.
+- Previews Trash size, top-level count, and example contents before emptying.
 - Keeps a separate numbered list for personal files and cleanup categories, so
   a number can never point at the wrong thing.
 - Supports QUICK, FULL, and CUSTOM scan modes.
