@@ -32,6 +32,8 @@ sandbox.
   `feat: expand full scan coverage and trash previews` (`9a98912`).
 - [x] Recorded wheel-build and host-tool evidence as
   `docs: record wheel build and host tool limits` (`d5591f9`).
+- [x] Committed the edge-case coverage as
+  `test: cover CLI, export, and terminal edge cases` (`c7aec50`).
 - [x] Expanded `.gitignore` and removed generated build/test artifacts before
   staging.
 - [x] Added `CHANGELOG.md`, `CONTRIBUTING.md`, and `RELEASE_CHECKLIST.md`.
@@ -70,11 +72,11 @@ sandbox.
 
 ## Next move
 
-1. Commit the remaining edge-case coverage; then continue from the remaining
-   `TODO.md` P1 host-validation items.
+1. The working tree is clean after the edge-case test commit; continue from the
+   remaining `TODO.md` P1 host-validation items.
 2. Do not claim real Fedora coverage from mock tests.
-3. Keep the audit-log retention policy and the automated packaging test clearly
-   marked incomplete.
+3. Remaining P2 work: per-filesystem free-space reporting, automated wheel
+   packaging coverage, audit-log retention, and the project license.
 4. Re-run the full suite after any host-driven fix and record the real Fedora
    and tool versions in `PROGRESS.md`.
 
