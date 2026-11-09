@@ -17,6 +17,7 @@ from pathlib import Path
 from . import APP_NAME, TAGLINE, __version__
 from .analyzer import Analysis, all_report_only, build_report
 from .audit import append_cleanup_event, audit_log_path
+from .capabilities import detect_capabilities
 from .categories import (
     CATEGORY_CHOICES,
     CleanupDiscovery,
@@ -326,7 +327,7 @@ def run_discovery(
     ui: UI,
 ) -> CleanupDiscovery:
     if not categories:
-        return CleanupDiscovery()
+        return CleanupDiscovery(capabilities=detect_capabilities(runner))
     ui.print("Looking for cleanup opportunities (read-only discovery)…")
     try:
         return discover_cleanup(
@@ -340,6 +341,7 @@ def run_discovery(
         ui.warning(f"Cleanup discovery was incomplete: {exc}")
         return CleanupDiscovery(
             notes=[f"Cleanup discovery failed: {exc}"],
+            capabilities=detect_capabilities(runner),
         )
 
 
@@ -692,6 +694,7 @@ def _run(args: argparse.Namespace) -> int:
     findings = all_report_only(discovery, analysis)
 
     ui.storage(scan)
+    ui.capabilities(discovery.capabilities)
     ui.cleanup_report(report, findings)
     ui.files(report.personal_files)
     ui.notes(report.notes)

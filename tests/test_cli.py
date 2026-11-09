@@ -178,6 +178,13 @@ class CliTests(unittest.TestCase):
         payload = json.loads(report_path.read_text(encoding="utf-8"))
         self.assertEqual(payload["personal_files"][0]["path"], str(file))
         self.assertIn("Report only", stdout.getvalue())
+        self.assertIn("HOST INTEGRATIONS", stdout.getvalue())
+        capabilities = payload["capabilities"]
+        self.assertFalse(capabilities["real_host_verified"])
+        self.assertIn("mocked", capabilities["verification"])
+        self.assertTrue(
+            any(tool["key"] == "dnf" for tool in capabilities["tools"])
+        )
 
     def test_invalid_path_returns_usage_error(self) -> None:
         stderr = io.StringIO()

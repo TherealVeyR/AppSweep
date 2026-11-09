@@ -21,14 +21,21 @@ No known P0 items.
 
 ## P1 — required before claiming full release coverage
 
-- [ ] **Validate on a real Fedora host with real system tools.**
+- [ ] **Validate on a real Fedora host with real system tools.** Follow the
+      manual checklist in `INTEGRATIONS.md`; mocked tests are not a substitute.
+  - [ ] Capability detection: confirm `HOST INTEGRATIONS` matches
+        `command -v` for every optional tool, and that missing tools do not
+        abort the scan.
   - [ ] `dnf`/`dnf5`: package cache cleanup, autoremove preview, old-kernel
         removal, and running-kernel/recovery-kernel exclusion.
+  - [ ] `rpm`: read-only old-kernel metadata query succeeds; an RPM failure is
+        reported without crashing discovery.
   - [ ] `rpm-ostree`: `rpm-ostree cleanup -m` only; confirm no deployment or
         rollback mutation is offered.
   - [ ] `flatpak`: unused-runtime discovery and official `uninstall --unused`
         behavior; confirm estimates are clearly labeled.
-  - [ ] `journalctl`: vacuum command and reclaim reporting.
+  - [ ] `journalctl`: vacuum command, short/IEC size parsing, and reclaim
+        reporting.
   - [ ] `gio`: file-to-Trash behavior, including files on a different
         filesystem from the home Trash.
   - [ ] `pkexec`: one-command-at-a-time approval and failure/cancel handling.
@@ -85,6 +92,8 @@ No known P0 items.
 - [x] `PROGRESS.md` — completed work and verification evidence.
 - [x] `TODO.md` — this file.
 - [x] `ARCHITECTURE.md` — module map and technical decisions.
+- [x] `INTEGRATIONS.md` — host integration matrix, mocked coverage, and manual
+      real-Fedora validation checklist.
 - [x] `README.md` — installation, usage, and setup.
 - [x] `CHANGELOG.md` — notable changes.
 - [x] `CONTRIBUTING.md` — development, testing, and Git workflow.

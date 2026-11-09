@@ -4,8 +4,8 @@ AppSweep is a safety-first storage analyzer and cleanup assistant for Fedora.
 It handles real personal files and system cleanup, so a change that makes the
 application more convenient at the expense of safety is not acceptable.
 
-Read `AGENTS.md`, `PROGRESS.md`, `TODO.md`, and `ARCHITECTURE.md` before making
-substantial changes.
+Read `AGENTS.md`, `PROGRESS.md`, `TODO.md`, `ARCHITECTURE.md`, and
+`INTEGRATIONS.md` before making substantial changes.
 
 ## Safety rules
 
@@ -121,6 +121,8 @@ Update the appropriate files when a milestone changes behavior:
 - `PROGRESS.md` for verified completed work and evidence.
 - `TODO.md` for remaining work, risks, and host-validation items.
 - `ARCHITECTURE.md` for module boundaries, data flow, and security decisions.
+- `INTEGRATIONS.md` for host-tool implementation status, mocked coverage, and
+  real-Fedora validation results.
 - `CHANGELOG.md` for notable changes.
 - `RELEASE_CHECKLIST.md` before declaring a release candidate complete.
 - `temp_task.md` for the active session's current task and next command.

@@ -1,4 +1,7 @@
-"""Trash discovery preview and no-fallback behavior tests."""
+"""Mocked Trash discovery preview and no-fallback behavior tests.
+
+No real host Trash is moved or emptied.
+"""
 
 from __future__ import annotations
 

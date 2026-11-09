@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from .cache_cleaner import discover_caches
+from .capabilities import CapabilityReport, detect_capabilities
 from .flatpak import FlatpakInfo, discover_flatpak
 from .log_cleaner import discover_logs
 from .models import CleanupItem, ReportOnlyFinding, RiskGroup, ScanResult
@@ -34,6 +35,7 @@ class CleanupDiscovery:
     categories_run: list[str] = field(default_factory=list)
     package_info: PackageManagerInfo | None = None
     flatpak_info: FlatpakInfo | None = None
+    capabilities: CapabilityReport = field(default_factory=CapabilityReport)
     modules: dict[str, object] = field(default_factory=dict)
 
     @property
@@ -64,7 +66,7 @@ def discover_cleanup(
     unknown = selected - set(CATEGORY_CHOICES)
     if unknown:
         raise ValueError(f"unknown cleanup categories: {', '.join(sorted(unknown))}")
-    discovery = CleanupDiscovery()
+    discovery = CleanupDiscovery(capabilities=detect_capabilities(runner))
 
     if "packages" in selected:
         package_discovery = discover_package_cleanup(

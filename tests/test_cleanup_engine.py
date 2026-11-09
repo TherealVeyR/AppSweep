@@ -1,4 +1,4 @@
-"""Cleanup execution tests, with no destructive commands sent to the host."""
+"""Mocked cleanup execution tests, with no destructive host commands."""
 
 from __future__ import annotations
 

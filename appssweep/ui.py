@@ -17,6 +17,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import TextIO
 
+from .capabilities import VERIFICATION_NOTE, CapabilityReport
 from .models import (
     CleanupItem,
     CleanupReport,
@@ -303,6 +304,37 @@ class UI:
                 "AppSweep is inside a Flatpak sandbox. Host-only paths and package "
                 "tools may be unreachable; only accessible local data was analyzed."
             )
+
+    def capabilities(self, report: CapabilityReport | None) -> None:
+        """Show which optional host tools were found and what is unavailable."""
+
+        if report is None or not report.tools:
+            return
+        self.section(
+            "HOST INTEGRATIONS",
+            "Missing optional tools disable only their own cleanup categories; "
+            "scanning and unrelated cleanup still work.",
+        )
+        available = report.available_tools
+        missing = report.missing_tools
+        if available:
+            names = ", ".join(self.safe(tool.name) for tool in available)
+            self.print(f"  {self.green('Available')}: {names}")
+        if missing:
+            names = ", ".join(self.safe(tool.name) for tool in missing)
+            self.print(f"  {self.yellow('Missing')}: {names}")
+            for warning in report.warnings:
+                wrapped = textwrap.wrap(
+                    self.safe(warning), width=max(40, self.width - 6)
+                )
+                if not wrapped:
+                    continue
+                self.print(f"  {self.yellow('•')} {wrapped[0]}")
+                for line in wrapped[1:]:
+                    self.print(f"    {line}")
+        else:
+            self.print(self.green("  All detected host integrations are available."))
+        self.print(self.dim(f"  {VERIFICATION_NOTE}"))
 
     def cleanup_report(self, report: CleanupReport, findings: Iterable[ReportOnlyFinding]) -> None:
         self.section(

@@ -18,10 +18,12 @@ AppSweep. Read it before changing code.
 2. `PROGRESS.md`: what is implemented and verified.
 3. `TODO.md`: outstanding work and known bugs.
 4. `ARCHITECTURE.md`: module map, data flow, and design decisions.
-5. `README.md`: user-facing installation and usage.
-6. `CHANGELOG.md`: notable verified changes.
-7. `CONTRIBUTING.md`: development, testing, and Git workflow.
-8. `RELEASE_CHECKLIST.md`: release gates that still need evidence.
+5. `INTEGRATIONS.md`: host-tool implementation status, mocked coverage, and the
+   manual real-Fedora validation checklist.
+6. `README.md`: user-facing installation and usage.
+7. `CHANGELOG.md`: notable verified changes.
+8. `CONTRIBUTING.md`: development, testing, and Git workflow.
+9. `RELEASE_CHECKLIST.md`: release gates that still need evidence.
 
 `temp_task.md` is the scratch record of the current work session. Update it
 when starting, pausing, or substantially changing a task.
@@ -126,9 +128,9 @@ python3 -m unittest discover -v
 
 Current baseline (2026-11-09):
 
-- 124 tests total.
-- 123 pass and 1 Rich-only test is skipped when Rich is not installed.
-- All 124 pass in a venv with `rich` installed.
+- 138 tests total.
+- 137 pass and 1 Rich-only test is skipped when Rich is not installed.
+- All 138 pass in a venv with `rich` installed.
 
 Rules for tests:
 
@@ -136,10 +138,10 @@ Rules for tests:
 - Never perform destructive operations against the real host during tests.
 - Horizontal tests should cover traversal, symlinks, permissions, mount
   boundaries, hardlink accounting, package/Flatpak detection, selection
-  parsing, authorization, cancellation, path safety, storage calculations, and
-  reporting.
-- Mock `dnf`, `rpm-ostree`, `flatpak`, `journalctl`, and `gio` when host tools
-  are unavailable.
+  parsing, authorization, cancellation, path safety, storage calculations,
+  capability detection, and reporting.
+- Mock `dnf`, `dnf5`, `rpm-ostree`, `rpm`, `flatpak`, `journalctl`, `pkexec`,
+  and `gio` when host tools are unavailable. Label mock-only coverage as such.
 - Do not weaken or delete a safety test to make a change pass.
 - Add a regression test with every bug fix.
 
@@ -159,6 +161,8 @@ After each major milestone, update:
 - `TODO.md`: remaining work, risks, and bugs.
 - `CHANGELOG.md`: notable user-visible or safety-relevant changes.
 - `README.md` and `ARCHITECTURE.md` when behavior or design changes.
+- `INTEGRATIONS.md`: when a host-tool path, mocked test, or validation status
+  changes.
 - `temp_task.md`: the current session's active task and next command.
 
 Do not record a feature as complete based only on intent. Cite the test or
@@ -187,11 +191,12 @@ ruff check appssweep tests
 ## Environment caveats
 
 The development sandbox is a Freedesktop Flatpak runtime, not a full Fedora
-host. It may lack `dnf`, `rpm-ostree`, `flatpak`, `journalctl`, `rpm`, and
-`pkexec`; `gio` may be present but is not a substitute for validating real host
-Trash behavior. Host-command behavior is therefore covered with mocks. A release
+host. It may lack `dnf`, `dnf5`, `rpm-ostree`, `flatpak`, `journalctl`, `rpm`,
+and `pkexec`; `gio` may be present but is not a substitute for validating real
+host Trash behavior. Host-command behavior is therefore covered with mocks. A release
 candidate must still be validated on a real Fedora host before claiming full
-system-tool coverage.
+system-tool coverage. Follow the checklist in `INTEGRATIONS.md` and do not
+record mock results as real-host evidence.
 
 The scanner deliberately skips tmpfs, virtual, network, and external mounts
 during a full storage scan. A custom scan root inside such a mount is allowed

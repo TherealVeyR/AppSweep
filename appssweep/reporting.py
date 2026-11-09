@@ -112,6 +112,7 @@ def report_to_dict(
         payload["overlaps"] = list(analysis.overlaps)
     if discovery is not None:
         payload["categories_run"] = list(discovery.categories_run)
+        payload["capabilities"] = discovery.capabilities.to_dict()
         payload["report_only_findings"] = [
             finding.to_dict() for finding in discovery.report_only
         ]

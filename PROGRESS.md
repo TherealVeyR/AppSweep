@@ -1,8 +1,9 @@
 # AppSweep Progress
 
 Last updated: 2026-11-09
-Status: **release candidate — code, cleanup audit logging, Git, packaging, docs,
-and automated tests are in place; real-Fedora host-tool validation remains.**
+Status: **release candidate — code, cleanup audit logging, Git, packaging
+configuration, docs, and automated tests are in place; final-source wheel
+re-verification and real-Fedora host-tool validation remain.**
 
 ## Current state
 
@@ -46,6 +47,15 @@ largest personal files, supports numbered selection, requires an explicit
 
 - [x] DNF/DNF5 package-cache, autoremove-preview, and old-kernel discovery.
 - [x] rpm-ostree metadata-only cleanup discovery.
+- [x] Centralized, read-only PATH capability detection for DNF, DNF5,
+  rpm-ostree, RPM, Flatpak, journalctl, pkexec, and gio. The terminal shows a
+  `HOST INTEGRATIONS` section, and JSON records `real_host_verified: false`
+  with explicit mocked-coverage wording.
+- [x] Missing optional tools degrade independently: scanning and unrelated
+  cleanup continue, and each missing tool has an actionable limit. No shell or
+  host command is executed during capability detection.
+- [x] Corrected journal size parsing for real `journalctl` short units such as
+  `1.0G` while retaining IEC units such as `1.0GiB`.
 - [x] Flatpak unused-runtime discovery with conservative estimate label.
 - [x] User and app cache discovery, including Flatpak app caches.
 - [x] Journal and rotated-log discovery.
@@ -122,6 +132,9 @@ largest personal files, supports numbered selection, requires an explicit
 - [x] `AGENTS.md`, `PROGRESS.md`, `TODO.md`, `ARCHITECTURE.md`, and
   `temp_task.md`.
 - [x] `CHANGELOG.md`, `CONTRIBUTING.md`, and `RELEASE_CHECKLIST.md`.
+- [x] `INTEGRATIONS.md` with the implementation matrix, mocked-coverage
+  inventory, current host-tool status, and a detailed manual real-Fedora
+  validation checklist. It does not claim real-host results.
 - [x] Git repository initialized in the AppSweep project directory with a
   local commit identity and conventional, verified milestone commits.
 
@@ -138,9 +151,9 @@ python3 -m unittest discover -v
 
 Result on 2026-11-09:
 
-- **124 tests total**
-- **123 passed, 1 skipped** without Rich
-- **124 passed** in a venv with Rich installed
+- **138 tests total**
+- **137 passed, 1 skipped** without Rich
+- **138 passed** in a venv with Rich installed
 - **0 failures**
 
 The suite covers selection parsing, filesystem measurement, scanner traversal,
@@ -150,7 +163,12 @@ package and Flatpak detection, runner safety, cleanup engine behavior,
 reporting/export, CLI flows, refresh-metadata wiring, CSV formula injection,
 analyzer overlap handling, exact top-50 display/selection numbering,
 cleanup audit-log privacy and refusal paths, Trash content previews,
-narrow-terminal rendering, Rich failure fallback, and the `--dry-run` alias.
+narrow-terminal rendering, Rich failure fallback, the `--dry-run` alias, and
+read-only capability detection. Mocked integration tests cover missing
+package/Flatpak tools, rpm-ostree metadata, RPM old-kernel selection with
+running-kernel exclusion, journal usage parsing, journalctl vacuum discovery,
+and the no-journalctl report-only fallback. These are explicitly mocks, not
+real Fedora validation.
 
 ### Manual smoke tests
 
@@ -160,14 +178,19 @@ narrow-terminal rendering, Rich failure fallback, and the `--dry-run` alias.
   and file.
 - [x] `./bin/appssweep --mode full` in the Flatpak sandbox: exit 0, correct
   sandbox limitation, isolated home scanned.
-- [x] `python3 -m unittest discover` in a venv with Rich: all 124 tests pass.
+- [x] `python3 -m unittest discover` in a venv with Rich: all 138 tests pass.
 - [x] `ruff check appssweep tests` in the Rich venv: all checks pass
   (optional lint; Ruff is not a runtime dependency).
-- [x] `pip install .` in a clean venv: console script reports `appssweep 1.0.0`
-  and completes a quick scan.
-- [x] `pip wheel --no-deps .` builds `appssweep-1.0.0-py3-none-any.whl`;
-  inspection confirms `appssweep/audit.py` and the `appssweep =
-  appssweep.cli:main` console entry point are present.
+- [x] Earlier revision: `pip install .` in a clean venv; console script reports
+  `appssweep 1.0.0` and completes a quick scan.
+- [x] Earlier revision: `pip wheel --no-deps .` built
+  `appssweep-1.0.0-py3-none-any.whl`; inspection confirmed
+  `appssweep/audit.py` and the `appssweep = appssweep.cli:main` console entry
+  point.
+- [ ] Final-source wheel/install re-verification after adding
+  `appssweep/capabilities.py`: blocked because the available Python
+  environments lack `setuptools.build_meta`/`build`. Packaging configuration was
+  not changed, but this is not recorded as verified for the final source.
 - [x] Rich manual rendering check: `supports_rich() == True`, banner and storage
   content render without error.
 - [x] Audit-log tests verify the `0600` file, `0700` directory, JSON-lines
@@ -185,15 +208,26 @@ narrow-terminal rendering, Rich failure fallback, and the `--dry-run` alias.
   read-only parent directory with a clear `ExportError`.
 - [x] UI tests cover 64-column rendering with a long unbroken name and fallback
   to the plain stream when the Rich console raises.
+- [x] Capability smoke test in an isolated home with `--categories none`
+  displayed `HOST INTEGRATIONS`, reported available `gio`, listed the absent
+  DNF/DNF5/rpm-ostree/RPM/Flatpak/journalctl/pkexec tools, and still exited 0.
+- [x] The capability smoke JSON contained eight tool records, actionable
+  warnings, `real_host_verified: false`, and the explicit mocked/unverified
+  wording. No host tool was executed for detection.
+- [x] New tests verify short journal units (`1.0G`) and IEC units (`1.0GiB`).
 
 ## Known limitations and unverified areas
 
-- The sandbox lacks real `dnf`, `rpm-ostree`, `flatpak`, `journalctl`, `rpm`,
-  and `pkexec`; `gio` 2.88.3 is present but was not used against the real host
-  Trash during development. Host integrations are tested with mocks and
-  command-shape validation only.
+- The sandbox lacks real `dnf`, `dnf5`, `rpm-ostree`, `flatpak`, `journalctl`,
+  `rpm`, and `pkexec`; `gio` 2.88.3 is present but was not used against the real
+  host Trash during development. Host integrations are tested with mocks and
+  command-shape validation only. See `INTEGRATIONS.md` for the exact matrix and
+  manual checklist.
 - Full host filesystem scanning and real package-manager cleanup have not been
   run on a full Fedora host in this environment.
+- The capability report intentionally keeps `real_host_verified: false` until
+  a person completes the real-Fedora checklist. Mocked tests cannot change that
+  status.
 - Flatpak 1.18 has no supported non-interactive unused-ref dry run; the current
   code labels the size as an estimate and delegates removal to
   `flatpak uninstall --unused`.
@@ -206,5 +240,7 @@ narrow-terminal rendering, Rich failure fallback, and the `--dry-run` alias.
 
 ## Next milestone
 
-See `TODO.md`. The priority is real-Fedora validation of host tools, followed
-by any regression tests or fixes found there.
+See `TODO.md` and the manual checklist in `INTEGRATIONS.md`. The priority is
+real-Fedora validation of host tools, followed by any regression tests or fixes
+found there. Missing tools in this sandbox are host limitations, not AppSweep
+implementation failures.

@@ -33,6 +33,8 @@ the confirmation prompt.
 - Records confirmed cleanup plans and results in a private, append-only audit
   log.
 - Supports `--dry-run` as an explicit alias for `--report-only`.
+- Shows a `HOST INTEGRATIONS` section so missing optional Fedora tools are
+  visible before you choose a cleanup category.
 - Never runs a shell. Cleanup commands are allowlisted and validated.
 - Refuses to run the whole program as root. Individual system commands request
   administrator approval through `pkexec` only when they are needed.
@@ -43,6 +45,8 @@ the confirmation prompt.
 - `PROGRESS.md` — completed work and verification evidence.
 - `TODO.md` — outstanding tasks, risks, and known bugs.
 - `ARCHITECTURE.md` — module map, data flow, and technical decisions.
+- `INTEGRATIONS.md` — implemented host integrations, mocked coverage, and the
+  manual real-Fedora validation checklist.
 - `CHANGELOG.md` — notable changes.
 - `CONTRIBUTING.md` — development, testing, and Git workflow.
 - `RELEASE_CHECKLIST.md` — release gates and host-validation evidence.
@@ -60,12 +64,18 @@ Start with `AGENTS.md` before changing code. Update `PROGRESS.md`, `TODO.md`, an
 - Optional host tools, used only when present:
   - `dnf` or `dnf5` for package-cache and old-kernel cleanup
   - `rpm-ostree` for immutable Fedora systems
+  - `rpm` for read-only old-kernel package metadata
   - `flatpak` for unused runtime cleanup
   - `journalctl` for journal cleanup
   - `gio` for moving files to the desktop Trash
   - `pkexec` for individually approved system commands
 
-AppSweep reports what it cannot use. Missing tools do not prevent a scan.
+AppSweep checks PATH for these tools without executing them. Missing optional
+tools disable only their dependent cleanup categories; scanning, reporting, and
+unrelated cleanup still work. The `HOST INTEGRATIONS` section explains each
+missing tool. See [`INTEGRATIONS.md`](INTEGRATIONS.md) for the implementation
+matrix and the manual real-Fedora checklist. A missing tool is not an AppSweep
+failure.
 
 ## Install
 
@@ -232,7 +242,10 @@ appssweep --mode custom --path ~/Downloads --json report.json --csv report.csv
 ```
 
 - JSON contains the complete scan summary, cleanup items, personal files,
-  notes, warnings, overlaps, report-only findings, and package-manager details.
+  notes, warnings, overlaps, report-only findings, package-manager details, and
+  host capability status. This release records `real_host_verified: false`;
+  only recorded evidence from the checklist in `INTEGRATIONS.md` can justify
+  changing that status.
 - CSV uses one row per record with a `record_type` column:
   `personal_file`, `cleanup_item`, or `report_only`.
 - Exports are written atomically with mode `0600` (private to your user).
@@ -302,8 +315,11 @@ yourself if the history becomes large. Scan reports are not written to this log.
 - Emptying Trash frees space immediately, but moving new files to Trash
   afterwards does not. The confirmation summary explains the order.
 - The cleanup audit log is append-only and has no automatic rotation yet.
+- Missing optional host tools are reported as capability limits, not as
+  application failures. Dependent cleanup categories are skipped.
 - Real Fedora host tools have not been validated from this development sandbox;
-  see `RELEASE_CHECKLIST.md`.
+  see `INTEGRATIONS.md` for the manual checklist and `RELEASE_CHECKLIST.md` for
+  the release gates.
 
 ## Troubleshooting
 
@@ -316,14 +332,18 @@ host-level coverage.
 
 ### No package-manager cleanup is offered
 
-Check that `dnf`, `dnf5`, or `rpm-ostree` is installed and available. Missing
-tools do not prevent a storage scan, but their cleanup categories are skipped.
-Package transactions are previews and still require explicit confirmation.
+Check the `HOST INTEGRATIONS` section. If `dnf`, `dnf5`, and `rpm-ostree` are
+all absent, package cleanup is unavailable, but the storage scan and other
+categories still work. If DNF is present but `rpm` is absent, old-kernel
+cleanup is unavailable; cache cleanup and autoremove preview may still work.
+Package transactions are previews and still require explicit confirmation. See
+`INTEGRATIONS.md` for the full dependency matrix.
 
 ### `gio` is missing, so files cannot be moved to Trash
 
 Install the desktop integration that provides `gio`. AppSweep does not fall back
-to permanent deletion when Trash is unavailable.
+to permanent deletion when Trash is unavailable. The `HOST INTEGRATIONS`
+section reports this limitation before you select a personal file.
 
 ### A system command asks for approval and then fails
 
@@ -370,11 +390,12 @@ python3 -m unittest discover -v
 ```
 
 Coverage includes traversal, symlink handling, permission errors, mount
-boundaries, hardlink accounting, package and Flatpak detection, selection
-parsing, authorization, cancellation, path safety, storage calculations,
-overlap detection, CSV formula neutralization, reporting, cleanup audit-log
-privacy/refusal, CLI flows, and the exact top-50 numbering shown during
-selection.
+boundaries, hardlink accounting, package and Flatpak detection, capability
+detection, selection parsing, authorization, cancellation, path safety, storage
+calculations, overlap detection, CSV formula neutralization, reporting, cleanup
+audit-log privacy/refusal, CLI flows, and the exact top-50 numbering shown
+during selection. Missing host tools are exercised with clearly labelled mocks;
+see `INTEGRATIONS.md` for what is and is not verified.
 
 Run the optional Rich suite with:
 
@@ -391,6 +412,7 @@ appssweep/
 │   ├── cli.py                 command-line workflow
 │   ├── scanner.py             filesystem traversal and ranking
 │   ├── analyzer.py            report totals and overlap checks
+│   ├── capabilities.py        read-only host-tool capability report
 │   ├── categories.py          numbered cleanup assembly
 │   ├── cleanup_engine.py      validated execution
 │   ├── audit.py               private cleanup audit log
@@ -406,6 +428,7 @@ appssweep/
 ├── PROGRESS.md                completed work and verification evidence
 ├── TODO.md                    outstanding work and known limitations
 ├── ARCHITECTURE.md            module map and design decisions
+├── INTEGRATIONS.md            host integration matrix and Fedora checklist
 ├── CHANGELOG.md               notable changes
 ├── CONTRIBUTING.md            development, testing, and Git workflow
 ├── RELEASE_CHECKLIST.md       release gates and host-validation evidence

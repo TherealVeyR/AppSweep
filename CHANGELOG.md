@@ -15,6 +15,14 @@ not been published to a package registry.
   result or refusal.
 - `--dry-run` as an explicit alias for `--report-only`. It never offers or
   executes cleanup.
+- Read-only PATH capability detection for optional Fedora host tools. The
+  terminal now shows a `HOST INTEGRATIONS` section with available tools,
+  missing tools, and actionable limits; JSON reports include the same status.
+- `INTEGRATIONS.md` with the implementation matrix, mocked-coverage inventory,
+  current sandbox status, and a manual real-Fedora validation checklist.
+- Mocked integration tests for rpm-ostree metadata, RPM old-kernel selection,
+  journal usage parsing, journalctl vacuum discovery, and the
+  no-journalctl report-only fallback.
 - FULL scan root discovery now includes separately mounted local `/opt`, `/etc`,
   `/root`, `/srv`, and disk-backed `/tmp`, plus a read-only `/usr` image on
   immutable Fedora systems.
@@ -24,6 +32,11 @@ not been published to a package registry.
   `RELEASE_CHECKLIST.md`.
 - Git repository hygiene rules for generated reports, test state, secrets,
   local configuration, and build artifacts.
+
+### Fixed
+
+- Journal usage parsing now accepts the short units printed by real
+  `journalctl` (for example `1.0G`) as well as IEC units such as `1.0GiB`.
 
 ### Security
 
@@ -38,7 +51,8 @@ not been published to a package registry.
 ### Changed
 
 - Documentation now describes cleanup audit logging, dry-run naming, Git
-  workflow, and the current test baseline.
+  workflow, host capability limits, the real-Fedora validation checklist, and
+  the current test baseline.
 
 ## [1.0.0] — release candidate, not published
 
@@ -77,8 +91,11 @@ not been published to a package registry.
 
 ### Known limitations
 
-- Real `dnf`, `rpm-ostree`, `flatpak`, `journalctl`, `rpm`, `pkexec`, and `gio`
-  behavior has not yet been validated on a real Fedora host from this sandbox.
+- Real `dnf`, `dnf5`, `rpm-ostree`, `flatpak`, `journalctl`, `rpm`, `pkexec`,
+  and `gio` behavior has not yet been validated on a real Fedora host from this
+  sandbox. Mocked tests are not a substitute; see `INTEGRATIONS.md`.
+- Missing optional tools are reported as capability limits and disable only
+  their dependent cleanup categories.
 - Full root-filesystem coverage and host Trash behavior remain host-validation
   items.
 - Python 3.10 compatibility has not been tested in the current development

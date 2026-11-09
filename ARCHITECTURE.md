@@ -34,6 +34,7 @@ Read-only scan (StorageScanner)
     └─ progress + cancellation
     ▼
 Discovery (discover_cleanup)
+    ├─ detect optional host tools from PATH (no execution)
     ├─ packages / rpm-ostree
     ├─ Flatpak
     ├─ caches
@@ -50,6 +51,7 @@ Report assembly (build_report)
     ▼
 Presentation (UI)
     ├─ storage summary
+    ├─ host integration availability and limits
     ├─ numbered cleanup categories
     ├─ separate top-50 personal table
     └─ report-only findings
@@ -87,7 +89,8 @@ Authorization + execution (CleanupEngine)
 | `appssweep/scanner.py` | Main read-only traversal, progress, cancellation, hardlink accounting, permission tracking, top-N heap, personal-file filtering. |
 | `appssweep/filetypes.py` | Conservative extension-based file classification. |
 | `appssweep/large_files.py` | Quick-scan folder list, personal exclusion rules, application roots, ranking helpers, selection map. |
-| `appssweep/categories.py` | Runs cleanup discovery modules, dedupes, sorts, and numbers items. |
+| `appssweep/capabilities.py` | Read-only PATH detection for optional host tools, actionable limits, and explicit mock/unverified status. |
+| `appssweep/categories.py` | Runs cleanup discovery modules, records capability status, dedupes, sorts, and numbers items. |
 | `appssweep/analyzer.py` | Report assembly, group totals, overlap detection, warnings, notes, report-only merge. |
 | `appssweep/package_manager.py` | DNF/DNF5 and rpm-ostree detection, cache discovery, autoremove preview parsing, old-kernel selection and command previews. |
 | `appssweep/flatpak.py` | Flatpak command discovery, runtime listings, unused-runtime estimate, official cleanup command. |
@@ -307,7 +310,8 @@ JSON preserves the full report:
 - cleanup items and action labels
 - personal files with exact byte sizes
 - notes, warnings, overlaps
-- categories run, package manager, Flatpak, and report-only findings
+- categories run, host capability status, package manager, Flatpak, and
+  report-only findings
 
 CSV uses a single table with a `record_type` column:
 
@@ -350,6 +354,16 @@ DNF, rpm-ostree, Flatpak, journalctl, and gio own their data formats and
 transactions. AppSweep does not reimplement package metadata deletion,
 deployments, runtime removal, journal vacuuming, or Trash semantics.
 
+### Graceful capability detection
+
+`appssweep/capabilities.py` checks PATH visibility for optional host commands
+without executing them. Missing tools are reported as limits, not application
+errors: only the dependent cleanup categories are disabled. The capability
+report is shown before cleanup selection, included in JSON, and records
+`real_host_verified: false` in this release. Only recorded evidence from the
+manual checklist in `INTEGRATIONS.md` can justify changing that status.
+Automated coverage uses mocked tools and is labelled as such.
+
 ### Conservative Flatpak estimate
 
 Flatpak 1.18 has no supported non-interactive unused-ref dry run. The discovery
@@ -390,6 +404,9 @@ Tests use only `unittest`, temporary directories, and fakes:
 - `FakeRunner` implements the subset of `CommandRunner` used by discovery and
   cleanup, records calls, and returns scripted results.
 - Host tools are mocked rather than invoked.
+- `tests/test_capabilities.py` verifies PATH-only capability detection and
+  warnings; `tests/test_host_integration_mocks.py` is explicitly labelled as
+  mocked coverage for rpm-ostree, RPM, and journalctl paths.
 - Scanner tests create real directory trees in temporary roots.
 - Safety tests exercise real `lstat`/unlink/cache-removal behavior inside
   temporary directories.

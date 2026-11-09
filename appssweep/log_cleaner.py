@@ -137,8 +137,10 @@ def _discover_journal(
 
 
 def parse_journal_disk_usage(text: str) -> int:
+    # journalctl commonly prints ``1.0G`` while other tools print ``1.0GiB``;
+    # accept both forms so real journal output is measured correctly.
     match = re.search(
-        r"([\d.]+)\s*([KMGTPE]?i?B)\b", text, re.IGNORECASE
+        r"([\d.]+)\s*([KMGTPE]?i?B?)\b", text, re.IGNORECASE
     )
     if not match:
         return 0

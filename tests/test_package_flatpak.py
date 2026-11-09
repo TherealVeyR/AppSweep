@@ -1,4 +1,7 @@
-"""Package-manager, Flatpak, command-runner, and command-shape tests."""
+"""Mocked package-manager, Flatpak, command-runner, and command-shape tests.
+
+These tests use fake host commands and are not real Fedora validation.
+"""
 
 from __future__ import annotations
 

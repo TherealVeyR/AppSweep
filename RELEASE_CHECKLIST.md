@@ -10,11 +10,13 @@ from a Flatpak sandbox when it requires a real Fedora host.
 - [x] `python3 -m unittest discover -v` passes without Rich.
 - [x] The full suite passes in a venv with `rich` installed.
 - [x] `ruff check appssweep tests` passes (optional lint gate).
-- [x] `python3 -m build` or the chosen wheel/sdist build succeeds. Verified
-      with `pip wheel --no-deps .`; the standalone `build` module is unavailable
-      in this sandbox.
-- [x] A clean virtual environment install of the built package exposes the
-      `appssweep` console script.
+- [x] Wheel/sdist packaging configuration is declared in `pyproject.toml`.
+- [ ] Re-run `python3 -m build` or `pip wheel --no-deps .` on the final source.
+      An earlier revision built successfully, but the current available Python
+      environments lack `setuptools.build_meta`/`build`. Packaging configuration
+      was not changed by the capability work.
+- [ ] Install the final-source built package in a clean virtual environment and
+      verify the `appssweep` console script.
 - [x] No test performs destructive cleanup outside a temporary directory.
 
 ## Safety gates
@@ -52,16 +54,27 @@ from a Flatpak sandbox when it requires a real Fedora host.
 - [x] JSON and CSV exports match the displayed report.
 - [x] CSV formula neutralization is active.
 - [x] Exports are mode `0600` and written atomically.
+- [x] Missing optional host tools do not abort the scan or unrelated cleanup.
+- [x] `HOST INTEGRATIONS` reports available/missing tools and actionable limits.
+- [x] JSON capability status says `real_host_verified: false` until host
+      validation is recorded.
+- [x] Capability detection only checks PATH and executes no host command.
 
 ## Real Fedora host validation
 
-Record the Fedora version and tool versions in `PROGRESS.md`.
+Follow the detailed manual checklist in `INTEGRATIONS.md`, using a disposable
+Fedora VM or test account. Record the Fedora version, kernel, tool versions, and
+evidence in `PROGRESS.md` and the `INTEGRATIONS.md` sign-off table. Do not mark
+these items from mocked tests.
 
+- [ ] `HOST INTEGRATIONS` matches `command -v` for the optional host tools.
+- [ ] Missing tools are recorded as N/A and do not abort the scan.
 - [ ] `dnf` or `dnf5` cache cleanup, autoremove preview, and old-kernel cleanup.
+- [ ] `rpm` read-only metadata query; an RPM failure is reported without a crash.
 - [ ] Running kernel and recovery kernel are excluded from old-kernel removal.
 - [ ] `rpm-ostree cleanup -m` behavior on an immutable Fedora deployment.
 - [ ] Flatpak unused-runtime discovery and official removal command.
-- [ ] `journalctl` vacuum behavior and reclaim reporting.
+- [ ] `journalctl` short/IEC size parsing, vacuum behavior, and reclaim reporting.
 - [ ] `gio` file-to-Trash behavior, including cross-filesystem cases.
 - [ ] `pkexec` one-command approval, denial, and cancellation paths.
 - [ ] Full scan runtime and memory on a representative large home directory.
@@ -73,9 +86,10 @@ Record the Fedora version and tool versions in `PROGRESS.md`.
 - [x] Lowercase `appssweep` is used only for package, module, command, and
       repository identifiers.
 - [x] `README.md` installation and usage instructions are current.
-- [x] `AGENTS.md`, `PROGRESS.md`, `TODO.md`, `ARCHITECTURE.md`, `CHANGELOG.md`,
-      and `CONTRIBUTING.md` are current.
+- [x] `AGENTS.md`, `PROGRESS.md`, `TODO.md`, `ARCHITECTURE.md`, `INTEGRATIONS.md`,
+      `CHANGELOG.md`, and `CONTRIBUTING.md` are current.
 - [x] Known limitations are stated without implying unverified coverage.
+- [x] Mocked host-tool tests are explicitly labelled as mocks in docs and tests.
 - [ ] A project license has been selected before public distribution.
 
 ## Repository and publication
