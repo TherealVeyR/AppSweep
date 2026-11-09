@@ -12,6 +12,7 @@ Design choices:
 
 from __future__ import annotations
 
+import errno
 import heapq
 import os
 import stat
@@ -26,6 +27,7 @@ from .filesystem import (
     filesystem_infos,
     is_flatpak_sandbox,
     is_network_filesystem,
+    mount_for_path,
     read_mountinfo,
 )
 from .filetypes import classify_path
@@ -45,6 +47,13 @@ from .util import human_bytes, is_within, path_depth
 
 DEFAULT_MAX_ISSUE_DETAILS = 60
 HARD_LINK_CHUNK = 4096
+_SCANDIR_FD_SUPPORT = os.scandir in os.supports_fd
+_DIRECTORY_FLAGS = (
+    os.O_RDONLY
+    | getattr(os, "O_DIRECTORY", 0)
+    | getattr(os, "O_NOFOLLOW", 0)
+    | getattr(os, "O_CLOEXEC", 0)
+)
 
 
 class ScanCancelled(Exception):
@@ -86,6 +95,7 @@ class StorageScanner:
         self.mounts = list(mounts) if mounts is not None else read_mountinfo()
         self.mount_map = {m.mount_point: m for m in self.mounts}
         self._scan_started = time.monotonic()
+        self._seen_inodes: set[tuple[int, int]] = set()
         self.result = ScanResult(
             config=self.config,
             roots=self.config.roots,
@@ -134,9 +144,20 @@ class StorageScanner:
                     existing_dev = os.stat(existing).st_dev
                 except OSError:
                     continue
-                if existing_dev == root_dev and is_within(root, existing):
-                    skip = True
-                    break
+                if not (existing_dev == root_dev and is_within(root, existing)):
+                    continue
+                root_mount = mount_for_path(root, self.mounts)
+                existing_mount = mount_for_path(existing, self.mounts)
+                if (
+                    root_mount is not None
+                    and existing_mount is not None
+                    and root_mount.mount_point != existing_mount.mount_point
+                ):
+                    # The parent traversal stops at the nested mount boundary,
+                    # so this explicitly selected root must still be scanned.
+                    continue
+                skip = True
+                break
             if not skip:
                 roots.append(root)
         return tuple(roots)
@@ -144,9 +165,15 @@ class StorageScanner:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+    def _cancelled(self) -> bool:
+        """Consult the cancellation source, including convenience callbacks."""
+
+        return bool(self.cancel_token())
+
     def scan(self) -> ScanResult:
         started = time.monotonic()
         self._scan_started = started
+        self._seen_inodes.clear()
         self.result.filesystems = filesystem_infos(
             self._roots_without_same_device_overlap() or self.config.roots,
             self.mounts,
@@ -162,7 +189,7 @@ class StorageScanner:
             return self.result
 
         for root in roots:
-            if self.cancel_token.cancelled:
+            if self._cancelled():
                 self.result.cancelled = True
                 break
             try:
@@ -176,10 +203,15 @@ class StorageScanner:
             self.result.coverage_notes.append(
                 "Scan was cancelled. Results are incomplete and cleanup is disabled."
             )
+        elif self._cancelled():
+            self.result.cancelled = True
+            self.result.coverage_notes.append(
+                "Scan was cancelled. Results are incomplete and cleanup is disabled."
+            )
 
         self._finalize_top_dirs()
         self.result.elapsed_seconds = time.monotonic() - started
-        if not self.cancel_token.cancelled and self.result.permission_error_count:
+        if not self.result.cancelled and self.result.permission_error_count:
             self.result.coverage_notes.append(
                 f"{self.result.permission_error_count} location(s) could not be fully read; "
                 "the report lists samples instead of pretending coverage is complete."
@@ -194,6 +226,27 @@ class StorageScanner:
     # ------------------------------------------------------------------
     # Traversal
     # ------------------------------------------------------------------
+    @staticmethod
+    def _open_scanned_directory(path: str) -> tuple[int, os.stat_result]:
+        if (
+            not _SCANDIR_FD_SUPPORT
+            or not hasattr(os, "O_DIRECTORY")
+            or not hasattr(os, "O_NOFOLLOW")
+        ):
+            raise OSError(
+                errno.ENOTSUP,
+                "safe no-follow directory traversal is unavailable",
+            )
+        fd = os.open(path, _DIRECTORY_FLAGS)
+        try:
+            opened = os.fstat(fd)
+            if not stat.S_ISDIR(opened.st_mode):
+                raise OSError(errno.ENOTDIR, "not a directory")
+            return fd, opened
+        except Exception:
+            os.close(fd)
+            raise
+
     def _scan_root(self, root: str, excludes: tuple[str, ...]) -> None:
         try:
             root_lstat = os.lstat(root)
@@ -226,139 +279,215 @@ class StorageScanner:
         directory_parents: dict[str, str | None] = {
             os.path.normpath(root): None
         }
-        seen_inodes: set[tuple[int, int]] = set()
         personal_heap: list[tuple[int, str, FileSnapshot]] = []
         issue_count = 0
 
-        stack: list[tuple[str, str | None]] = [(os.path.normpath(root), None)]
+        root_norm = os.path.normpath(root)
+        stack: list[tuple[str, str | None, int, int]] = [
+            (root_norm, None, root_lstat.st_dev, root_lstat.st_ino)
+        ]
         last_progress = 0.0
         entries_since_cancel_check = 0
         while stack:
-            if self.cancel_token.cancelled:
+            if self._cancelled():
                 self.result.cancelled = True
                 break
-            current, inherited_app = stack.pop()
+            current, inherited_app, expected_dev, expected_ino = stack.pop()
             app_label = self.config.application_roots.get(current, inherited_app)
             normalized_current = os.path.normpath(current)
             directory_sizes.setdefault(normalized_current, 0)
             directory_allocated.setdefault(normalized_current, 0)
             directory_files.setdefault(normalized_current, 0)
 
-            if current != os.path.normpath(root) and self._should_skip_directory(
+            if current != root_norm and self._should_skip_directory(
                 current, root_dev, excludes
             ):
                 continue
 
             try:
-                with os.scandir(current) as iterator:
-                    entries = list(iterator)
+                directory_fd, opened = self._open_scanned_directory(current)
             except PermissionError as exc:
                 issue_count += 1
                 self._record_permission_issue(current, exc)
                 continue
             except OSError as exc:
-                issue_count += 1
-                self._record_permission_issue(current, exc)
+                if exc.errno in (errno.EACCES, errno.EPERM):
+                    issue_count += 1
+                    self._record_permission_issue(current, exc)
+                else:
+                    self._record_skipped(
+                        current,
+                        "directory changed or was replaced during scan",
+                        "",
+                    )
                 continue
 
-            self.result.total_dirs += 1
-
-            for entry in entries:
-                entries_since_cancel_check += 1
-                if entries_since_cancel_check >= 512:
-                    entries_since_cancel_check = 0
-                    if self.cancel_token.cancelled:
-                        self.result.cancelled = True
-                        stack.clear()
-                        break
+            try:
+                if (
+                    opened.st_dev != expected_dev
+                    or opened.st_ino != expected_ino
+                    or not stat.S_ISDIR(opened.st_mode)
+                ):
+                    self._record_skipped(
+                        current,
+                        "directory changed or was replaced during scan",
+                        "",
+                    )
+                    continue
+                if opened.st_dev != root_dev:
+                    self._record_skipped(
+                        current,
+                        "different filesystem (external or separate mount)",
+                        "",
+                    )
+                    continue
 
                 try:
-                    lstat = entry.stat(follow_symlinks=False)
-                except OSError as exc:
+                    iterator = os.scandir(directory_fd)
+                except PermissionError as exc:
                     issue_count += 1
-                    self._record_permission_issue(entry.path, exc)
+                    self._record_permission_issue(current, exc)
+                    continue
+                except OSError as exc:
+                    if exc.errno in (errno.EACCES, errno.EPERM):
+                        issue_count += 1
+                        self._record_permission_issue(current, exc)
+                    else:
+                        self._record_skipped(
+                            current,
+                            "directory changed or was replaced during scan",
+                            "",
+                        )
                     continue
 
-                mode = lstat.st_mode
-                if stat.S_ISLNK(mode):
-                    self.result.total_symlinks += 1
-                    continue
-                if stat.S_ISDIR(mode):
-                    child = os.path.normpath(entry.path)
-                    if is_within(child, current) or child == current:
-                        # Keep a lexical parent map; it is cheap compared with
-                        # storing complete file paths.
-                        directory_parents[child] = normalized_current
-                    if self.cancel_token.cancelled:
-                        self.result.cancelled = True
-                        stack.clear()
-                        break
-                    if self._should_skip_directory(child, root_dev, excludes, lstat):
-                        continue
-                    child_app = self.config.application_roots.get(child, app_label)
-                    stack.append((child, child_app))
-                    continue
-                if not stat.S_ISREG(mode):
-                    continue
+                self.result.total_dirs += 1
 
-                self.result.total_files += 1
-                identity = (lstat.st_dev, lstat.st_ino)
-                if lstat.st_nlink > 1:
-                    if identity in seen_inodes:
-                        continue
-                    seen_inodes.add(identity)
-                self.result.unique_files += 1
-                self.result.total_bytes += lstat.st_size
-                allocated = _allocated_size(lstat)
-                self.result.total_allocated += allocated
-                directory_sizes[normalized_current] += lstat.st_size
-                directory_allocated[normalized_current] += allocated
-                directory_files[normalized_current] += 1
+                with iterator:
+                    for entry in iterator:
+                        entries_since_cancel_check += 1
+                        if entries_since_cancel_check >= 512:
+                            entries_since_cancel_check = 0
+                            if self._cancelled():
+                                self.result.cancelled = True
+                                stack.clear()
+                                break
 
-                file_type = classify_path(entry.path)
-                self.result.file_type_sizes[file_type.kind.value] = (
-                    self.result.file_type_sizes.get(file_type.kind.value, 0)
-                    + lstat.st_size
-                )
-                self.result.file_type_counts[file_type.kind.value] = (
-                    self.result.file_type_counts.get(file_type.kind.value, 0) + 1
-                )
-                extension_key = file_type.extension or "(none)"
-                self.result.extension_sizes[extension_key] = (
-                    self.result.extension_sizes.get(extension_key, 0) + lstat.st_size
-                )
-                area = self._storage_area(entry.path)
-                self.result.storage_areas[area] = (
-                    self.result.storage_areas.get(area, 0) + lstat.st_size
-                )
-                if app_label:
-                    self.result.application_usage[app_label] = (
-                        self.result.application_usage.get(app_label, 0) + lstat.st_size
-                    )
+                        entry_path = os.path.normpath(
+                            os.path.join(current, entry.name)
+                        )
+                        try:
+                            lstat = os.stat(
+                                entry.name,
+                                dir_fd=directory_fd,
+                                follow_symlinks=False,
+                            )
+                        except OSError as exc:
+                            issue_count += 1
+                            self._record_permission_issue(entry_path, exc)
+                            continue
 
-                if self._is_personal_candidate(
-                    entry.path, lstat, app_label=app_label
-                ):
-                    snapshot = self._snapshot_from_stat(
-                        entry.path, lstat, file_type
-                    )
-                    heapq.heappush(
-                        personal_heap, (snapshot.size, snapshot.path, snapshot)
-                    )
-                    if len(personal_heap) > self.config.top_n:
-                        heapq.heappop(personal_heap)
+                        mode = lstat.st_mode
+                        if stat.S_ISLNK(mode):
+                            self.result.total_symlinks += 1
+                            continue
+                        if stat.S_ISDIR(mode):
+                            child = entry_path
+                            if is_within(child, current) or child == current:
+                                # Keep a lexical parent map; it is cheap
+                                # compared with storing complete file paths.
+                                directory_parents[child] = normalized_current
+                            if self._cancelled():
+                                self.result.cancelled = True
+                                stack.clear()
+                                break
+                            if self._should_skip_directory(
+                                child, root_dev, excludes, lstat
+                            ):
+                                continue
+                            child_app = self.config.application_roots.get(
+                                child, app_label
+                            )
+                            stack.append(
+                                (
+                                    child,
+                                    child_app,
+                                    lstat.st_dev,
+                                    lstat.st_ino,
+                                )
+                            )
+                            continue
+                        if not stat.S_ISREG(mode):
+                            continue
 
-            if self.progress is not None:
-                now = time.monotonic()
-                if now - last_progress >= self.config.progress_interval:
-                    last_progress = now
-                    self.progress(
-                        current,
-                        self.result.unique_files,
-                        self.result.total_dirs,
-                        self.result.total_bytes,
-                        now - self._scan_started,
-                    )
+                        self.result.total_files += 1
+                        identity = (lstat.st_dev, lstat.st_ino)
+                        if lstat.st_nlink > 1:
+                            if identity in self._seen_inodes:
+                                continue
+                            self._seen_inodes.add(identity)
+                        self.result.unique_files += 1
+                        self.result.total_bytes += lstat.st_size
+                        allocated = _allocated_size(lstat)
+                        self.result.total_allocated += allocated
+                        directory_sizes[normalized_current] += lstat.st_size
+                        directory_allocated[normalized_current] += allocated
+                        directory_files[normalized_current] += 1
+
+                        file_type = classify_path(entry_path)
+                        self.result.file_type_sizes[file_type.kind.value] = (
+                            self.result.file_type_sizes.get(
+                                file_type.kind.value, 0
+                            )
+                            + lstat.st_size
+                        )
+                        self.result.file_type_counts[file_type.kind.value] = (
+                            self.result.file_type_counts.get(
+                                file_type.kind.value, 0
+                            )
+                            + 1
+                        )
+                        extension_key = file_type.extension or "(none)"
+                        self.result.extension_sizes[extension_key] = (
+                            self.result.extension_sizes.get(extension_key, 0)
+                            + lstat.st_size
+                        )
+                        area = self._storage_area(entry_path)
+                        self.result.storage_areas[area] = (
+                            self.result.storage_areas.get(area, 0)
+                            + lstat.st_size
+                        )
+                        if app_label:
+                            self.result.application_usage[app_label] = (
+                                self.result.application_usage.get(app_label, 0)
+                                + lstat.st_size
+                            )
+
+                        if self._is_personal_candidate(
+                            entry_path, lstat, app_label=app_label
+                        ):
+                            snapshot = self._snapshot_from_stat(
+                                entry_path, lstat, file_type
+                            )
+                            heapq.heappush(
+                                personal_heap,
+                                (snapshot.size, snapshot.path, snapshot),
+                            )
+                            if len(personal_heap) > self.config.top_n:
+                                heapq.heappop(personal_heap)
+
+                if self.progress is not None:
+                    now = time.monotonic()
+                    if now - last_progress >= self.config.progress_interval:
+                        last_progress = now
+                        self.progress(
+                            current,
+                            self.result.unique_files,
+                            self.result.total_dirs,
+                            self.result.total_bytes,
+                            now - self._scan_started,
+                        )
+            finally:
+                os.close(directory_fd)
 
         # Bubble exclusive sizes up exactly once per directory.
         all_dirs = set(directory_sizes) | set(directory_allocated) | set(directory_files)
@@ -414,11 +543,16 @@ class StorageScanner:
                 self.result.total_bytes,
                 time.monotonic() - self._scan_started,
             )
-        if self.cancel_token.cancelled:
+        if self._cancelled():
             self.result.cancelled = True
 
     def _scan_loose_file(self, path: str, lstat: os.stat_result) -> None:
         self.result.total_files += 1
+        identity = (lstat.st_dev, lstat.st_ino)
+        if lstat.st_nlink > 1:
+            if identity in self._seen_inodes:
+                return
+            self._seen_inodes.add(identity)
         self.result.unique_files += 1
         self.result.total_bytes += lstat.st_size
         self.result.total_allocated += _allocated_size(lstat)
@@ -470,13 +604,21 @@ class StorageScanner:
             )
             return True
         mount = self.mount_map.get(normalized)
-        if mount and (
-            mount.fstype.lower() in VIRTUAL_FSTYPES
-            or is_network_filesystem(mount.fstype)
-        ):
-            self._record_skipped(
-                normalized, "virtual or network mount", mount.fstype
-            )
+        if mount:
+            if (
+                mount.fstype.lower() in VIRTUAL_FSTYPES
+                or is_network_filesystem(mount.fstype)
+            ):
+                self._record_skipped(
+                    normalized, "virtual or network mount", mount.fstype
+                )
+            else:
+                # This includes same-device bind mounts. A selected root at or
+                # below the mount is scanned separately, so stopping here
+                # avoids double counting and crossing an explicit boundary.
+                self._record_skipped(
+                    normalized, "nested mount boundary", mount.fstype
+                )
             return True
         return False
 

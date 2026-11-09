@@ -85,6 +85,23 @@ class SelectionTests(unittest.TestCase):
         with self.assertRaises(SelectionError):
             parse_file_selection("8-3", self.files)
 
+    def test_huge_range_rejected_before_materializing(self) -> None:
+        with self.assertRaises(SelectionError) as context:
+            parse_file_selection("1-100000000000000000000", self.files)
+        self.assertIn("valid range", str(context.exception))
+        with self.assertRaises(SelectionError):
+            parse_file_selection("all, !1-100000000000000000000", self.files)
+
+    def test_range_cannot_exceed_available_choice_count(self) -> None:
+        sparse = {1: "one", 10: "ten"}
+        with self.assertRaises(SelectionError) as context:
+            parse_file_selection("1-10", sparse)
+        self.assertIn("selectable items", str(context.exception))
+
+    def test_absurdly_long_number_is_rejected_as_selection_error(self) -> None:
+        with self.assertRaises(SelectionError):
+            parse_file_selection("9" * 5000, self.files)
+
     def test_garbage_rejected(self) -> None:
         with self.assertRaises(SelectionError):
             parse_file_selection("largest", self.files)

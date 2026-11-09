@@ -1,9 +1,10 @@
 # AppSweep Progress
 
 Last updated: 2026-11-09
-Status: **release candidate — code, cleanup audit logging, Git, packaging
-configuration, docs, and automated tests are in place; final-source wheel
-re-verification and real-Fedora host-tool validation remain.**
+Status: **remediation committed on `main` — code, cleanup audit logging, Git,
+packaging configuration, docs, and automated tests are in place; final-source
+wheel re-verification, real-Fedora host-tool validation, Python 3.10, and a real
+bind-mount test remain.**
 
 ## Current state
 
@@ -13,6 +14,13 @@ largest personal files, supports numbered selection, requires an explicit
 `CLEAN` confirmation, and defaults personal files to Trash.
 
 `../taskvault` is unrelated and has not been touched.
+
+The independent validation findings `BUG-001` through `BUG-004` and
+`POT-001` through `POT-005` are remediated and committed on `main`. The report
+was evaluated against `f96eaf2` with 124 tests; the pre-remediation `HEAD` was
+`3ac4053`, and the remediated suite has 166 tests. The source report
+`INDEPENDENT_VALIDATION_REPORT.md` remains untracked as a temporary validation
+artifact.
 
 ## Completed work
 
@@ -24,12 +32,19 @@ largest personal files, supports numbered selection, requires an explicit
 - [x] Mount discovery from `/proc/self/mountinfo`, local/network/virtual
   classification, mount-boundary checks, and filesystem capacity reporting.
 - [x] Main scanner based on `os.scandir` with:
-  - [x] boundary pruning
+  - [x] descriptor-relative directory traversal using
+    `O_DIRECTORY | O_NOFOLLOW` and `fstat` identity checks
+  - [x] incremental enumeration so cancellation can stop inside a wide
+    directory instead of materializing every entry first
+  - [x] path/device/inode rechecks when a queued directory is reopened
+  - [x] boundary pruning for every nested mount point, including same-device
+    bind mounts; explicitly selected nested roots are still scanned
   - [x] symlink reporting without following
-  - [x] hardlink accounting
+  - [x] global hardlink accounting across every scan root and loose-file root
   - [x] permission-error tracking
   - [x] skipped-path reporting
-  - [x] cancellation with partial results
+  - [x] cancellation with partial results, including convenience
+    `cancel_check` callbacks
   - [x] bounded top-N personal-file heap
   - [x] personal-file filtering
   - [x] progress callback
@@ -40,7 +55,8 @@ largest personal files, supports numbered selection, requires an explicit
   scan requires explicit `--path` roots.
 - [x] FULL scan includes separately mounted local `/opt`, `/etc`, `/root`,
   `/srv`, and disk-backed `/tmp`, plus a read-only `/usr` image on immutable
-  Fedora systems.
+  Fedora systems. Nested mount points are pruned from a parent traversal and
+  scanned separately only when they are also explicit scan roots.
 - [x] Flatpak sandbox detection and limitation reporting.
 
 ### Cleanup discovery and reporting
@@ -74,6 +90,9 @@ largest personal files, supports numbered selection, requires an explicit
 - [x] Selection parser: `1`, `1,3,5`, `1-10`, mixed syntax, `all`, `none`,
   `cancel`, `!` exclusions, and cleanup group words.
 - [x] Invalid, reversed, disabled, and mixed cancel/none selections rejected.
+- [x] Range endpoints and span are validated against the available choices
+  before constructing sets; huge ranges and absurdly long numbers are rejected
+  predictably.
 
 ### Safety and execution
 
@@ -84,8 +103,19 @@ largest personal files, supports numbered selection, requires an explicit
   `~/.var/app/<app>/cache`; Flatpak app data and configuration remain protected.
 - [x] Snapshot revalidation by path, device, inode, size, mtime, owner, and
   group.
-- [x] Symlink-safe cache clearing; symlinks are removed as entries, never
-  traversed.
+- [x] Descriptor-relative cache clearing: stable anchor/parent descriptors,
+  `O_DIRECTORY | O_NOFOLLOW`, `dir_fd` stat/unlink/rmdir, child inode checks,
+  final path-to-descriptor identity checks, and mount-ID boundary checks. It
+  fails closed when those primitives or `/proc/self/fdinfo` are unavailable.
+- [x] Descriptor-relative personal permanent unlink: the approved root and
+  parent chain are opened through stable descriptors, the final file is checked
+  against the complete snapshot through the parent descriptor, and the unlink
+  uses that same descriptor. A changed parent or file aborts before removal.
+- [x] Deterministic race regressions replace cache targets, nested cache
+  directories, personal parents, and selected files at controlled check/use
+  windows. Outside victims remain unchanged and authorized cleanup still works.
+- [x] Same-device bind mounts inside cache targets are rejected by mount ID,
+  not only by device number.
 - [x] Personal-file permanent deletion only after separate typed confirmation
   and authorization bit.
 - [x] Trash move through `gio trash --`; no automatic permanent-delete fallback.
@@ -149,26 +179,36 @@ python3 -m compileall -q appssweep tests
 python3 -m unittest discover -v
 ```
 
-Result on 2026-11-09:
+Result on 2026-11-09, after the independent-validation remediation:
 
-- **138 tests total**
-- **137 passed, 1 skipped** without Rich
-- **138 passed** in a venv with Rich installed
+- **166 tests total**
+- **165 passed, 1 skipped** without Rich
+- **166 passed** in a venv with Rich installed
 - **0 failures**
+- `python3 -m compileall -q appssweep tests`: pass
+- `/tmp/opencode/appssweep-rich-venv/bin/ruff check appssweep tests`: pass
 
-The suite covers selection parsing, filesystem measurement, scanner traversal,
-symlinks, permissions, mount boundaries, hardlink accounting, cancellation,
-full-mode root discovery, safety/authorization, cache override protection,
-package and Flatpak detection, runner safety, cleanup engine behavior,
-reporting/export, CLI flows, refresh-metadata wiring, CSV formula injection,
-analyzer overlap handling, exact top-50 display/selection numbering,
-cleanup audit-log privacy and refusal paths, Trash content previews,
-narrow-terminal rendering, Rich failure fallback, the `--dry-run` alias, and
-read-only capability detection. Mocked integration tests cover missing
-package/Flatpak tools, rpm-ostree metadata, RPM old-kernel selection with
-running-kernel exclusion, journal usage parsing, journalctl vacuum discovery,
-and the no-journalctl report-only fallback. These are explicitly mocks, not
-real Fedora validation.
+P1 fail-first evidence: before the descriptor-relative implementation,
+`python3 -m unittest tests.test_safety -v` ran 26 tests with **2 failures and
+6 errors** against the added race regressions. After remediation, the safety
+module has 31 tests and all pass. The final full suite grew from the 138-test
+pre-remediation baseline to 166 tests.
+
+The suite covers selection parsing (including oversized ranges), filesystem
+measurement, descriptor-relative scanner traversal, directory-swap races,
+symlinks, permissions, mount boundaries, global hardlink accounting,
+cancellation callbacks and wide-directory cancellation, full-mode root
+discovery, safety/authorization, descriptor-relative cache/personal deletion,
+cache override protection, package and Flatpak detection, runner safety,
+cleanup engine behavior, reporting/export, CLI flows, refresh-metadata wiring,
+CSV formula injection, analyzer overlap handling, exact top-50
+display/selection numbering, cleanup audit-log privacy and refusal paths, Trash
+content previews, narrow-terminal rendering, Rich failure fallback, the
+`--dry-run` alias, and read-only capability detection. Mocked integration tests
+cover missing package/Flatpak tools, rpm-ostree metadata, RPM old-kernel
+selection with running-kernel exclusion, journal usage parsing, journalctl
+vacuum discovery, and the no-journalctl report-only fallback. These are
+explicitly mocks, not real Fedora validation.
 
 ### Manual smoke tests
 
@@ -178,17 +218,26 @@ real Fedora validation.
   and file.
 - [x] `./bin/appssweep --mode full` in the Flatpak sandbox: exit 0, correct
   sandbox limitation, isolated home scanned.
-- [x] `python3 -m unittest discover` in a venv with Rich: all 138 tests pass.
+- [x] `python3 -m unittest discover` in a venv with Rich: all 166 tests pass.
 - [x] `ruff check appssweep tests` in the Rich venv: all checks pass
   (optional lint; Ruff is not a runtime dependency).
+- [x] Independent-validation custom smoke in an isolated fixture:
+  `python3 bin/appssweep --mode custom --path <fixture> --min-size 0
+  --categories none --report-only --no-color --json <report.json>
+  --csv <report.csv>` exited 0; JSON contained 2 personal files and 0 cleanup
+  items; CSV contained 2 `personal_file` rows; no cleanup audit log was
+  created.
+- [x] Independent-validation QUICK smoke with an isolated `HOME` and
+  `XDG_STATE_HOME`: exit 0, the output said `Report only`, it did not contain
+  `Type CLEAN`, and no cleanup audit log was created.
 - [x] Earlier revision: `pip install .` in a clean venv; console script reports
   `appssweep 1.0.0` and completes a quick scan.
 - [x] Earlier revision: `pip wheel --no-deps .` built
   `appssweep-1.0.0-py3-none-any.whl`; inspection confirmed
   `appssweep/audit.py` and the `appssweep = appssweep.cli:main` console entry
   point.
-- [ ] Final-source wheel/install re-verification after adding
-  `appssweep/capabilities.py`: blocked because the available Python
+- [ ] Final-source wheel/install re-verification after the capability and
+  independent-validation changes: blocked because the available Python
   environments lack `setuptools.build_meta`/`build`. Packaging configuration was
   not changed, but this is not recorded as verified for the final source.
 - [x] Rich manual rendering check: `supports_rich() == True`, banner and storage
@@ -237,10 +286,21 @@ real Fedora validation.
   or retention policy.
 - Python 3.14 was used for development; the declared minimum is Python 3.10 and
   has not been tested on 3.10 in this environment.
+- A real secondary filesystem or same-device bind mount was not created. Mount
+  policy is covered by mountinfo unit fixtures for the scanner and simulated
+  mount IDs for cache deletion; these are not real-mount integration evidence.
+- The available Python environments lack `setuptools.build_meta`/`build`, so
+  the final source was not re-wheeled or reinstalled.
+- The remediation is committed on `main`. Changed files are the four
+  implementation modules, their tests, and documentation.
+  `INDEPENDENT_VALIDATION_REPORT.md` remains untracked as a temporary source
+  report. No push, tag, history rewrite, package installation, or real cleanup
+  was performed.
 
 ## Next milestone
 
-See `TODO.md` and the manual checklist in `INTEGRATIONS.md`. The priority is
-real-Fedora validation of host tools, followed by any regression tests or fixes
-found there. Missing tools in this sandbox are host limitations, not AppSweep
-implementation failures.
+See `TODO.md` and the manual checklist in `INTEGRATIONS.md`. The remediation is
+committed; the priority is real-Fedora validation of host tools and an
+authorized real bind-mount regression test, followed by release review. Missing
+tools in this sandbox are host limitations, not AppSweep implementation
+failures.

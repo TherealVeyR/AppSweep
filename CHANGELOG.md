@@ -37,9 +37,33 @@ not been published to a package registry.
 
 - Journal usage parsing now accepts the short units printed by real
   `journalctl` (for example `1.0G`) as well as IEC units such as `1.0GiB`.
+- Resolved the independent validation findings `BUG-001` through `BUG-004` and
+  `POT-001` through `POT-005` in the working tree.
+- Cross-root and loose-file hard links are now deduplicated globally across the
+  entire scan, not only within one root.
+- Convenience `cancel_check` callbacks passed to the scanner are now consulted;
+  they can stop immediately or during traversal. Wide directories are
+  enumerated incrementally rather than materialized before the first check.
+- Huge or inconsistent selection ranges are rejected against the available
+  choices before a set is allocated, and absurdly long numbers produce a
+  selection error instead of an uncaught `ValueError`.
+- Nested mount points, including same-device bind mounts, are skipped by default
+  when discovered below a scan root; explicitly selected nested roots are still
+  scanned.
 
 ### Security
 
+- Cache cleanup and permanent personal deletion now use descriptor-relative,
+  no-follow operations. Cache targets are opened through verified directory
+  descriptors; personal unlink validates the parent chain and complete snapshot
+  through the same parent descriptor used for `unlink(..., dir_fd=...)`.
+  Changed paths, inodes, sizes, or mtimes abort before removal.
+- Cache traversal verifies each child directory descriptor and rejects different
+  filesystems and mount-ID boundaries, including same-device bind mounts. It
+  fails closed when descriptor or mount-boundary verification is unavailable.
+- Scanner traversal reopens queued directories with `O_NOFOLLOW`, verifies
+  device/inode identity before enumeration, and uses descriptor-relative entry
+  stats so a parent swap cannot redirect a scan.
 - Audit logs use a private `0700` directory and `0600` JSON-lines file, refuse
   symlink targets and unsafe state directories, and never block reporting when
   an audit write fails.
@@ -51,8 +75,10 @@ not been published to a package registry.
 ### Changed
 
 - Documentation now describes cleanup audit logging, dry-run naming, Git
-  workflow, host capability limits, the real-Fedora validation checklist, and
-  the current test baseline.
+  workflow, host capability limits, descriptor-relative safety checks, mount
+  policy, the real-Fedora validation checklist, and the current 166-test
+  baseline. The remediation is committed on `main`; the temporary validation
+  report remains untracked.
 
 ## [1.0.0] — release candidate, not published
 

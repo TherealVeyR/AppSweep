@@ -85,6 +85,30 @@ class FilesystemTests(unittest.TestCase):
         self.assertEqual(result.logical_size, 128)
         self.assertEqual(result.symlinks, 1)
 
+    def test_measure_path_skips_same_device_nested_mount(self) -> None:
+        mounted = self.root / "mounted"
+        mounted.mkdir()
+        (mounted / "inside.bin").write_bytes(b"x" * 1024)
+        mounts = [
+            MountInfo(
+                mount_point=str(mounted),
+                source="/dev/same",
+                fstype="ext4",
+                options="rw",
+                major_minor="0:42",
+            )
+        ]
+
+        result = measure_path(str(self.root), mounts=mounts)
+
+        self.assertEqual(result.logical_size, 0)
+        self.assertTrue(
+            any(skip.path == str(mounted) for skip in result.skipped)
+        )
+        self.assertTrue(
+            any("nested mount boundary" in skip.reason for skip in result.skipped)
+        )
+
     def test_measure_path_records_permission_error(self) -> None:
         if os.geteuid() == 0:
             self.skipTest("root can read every test directory")
@@ -133,6 +157,24 @@ class FilesystemTests(unittest.TestCase):
         boundary, reason = is_mount_boundary(str(virtual_dir), root_dev, mounts)
         self.assertTrue(boundary)
         self.assertIn("proc", reason)
+
+    def test_mount_boundary_reports_same_device_local_mount(self) -> None:
+        root_dev = os.stat(self.root).st_dev
+        local_dir = self.root / "local-mount"
+        local_dir.mkdir()
+        mounts = {
+            str(local_dir): MountInfo(
+                mount_point=str(local_dir),
+                source="/dev/same",
+                fstype="ext4",
+                major_minor="0:42",
+            )
+        }
+
+        boundary, reason = is_mount_boundary(str(local_dir), root_dev, mounts)
+
+        self.assertTrue(boundary)
+        self.assertIn("mount boundary", reason)
 
     def test_installation_roots_flatpak_sandbox(self) -> None:
         roots, notes, _mounts = discover_installation_roots(

@@ -17,12 +17,20 @@ Read `AGENTS.md`, `PROGRESS.md`, `TODO.md`, `ARCHITECTURE.md`, and
 - Never use `shell=True`, `os.system`, `eval`, or shell-concatenated commands.
 - Never run the whole application as root. Use `pkexec` only for a specific
   allowlisted command that needs administrator approval.
-- Never follow symlinks during scanning or cleanup.
-- Revalidate every personal-file snapshot immediately before acting.
+- Never follow symlinks during scanning or cleanup. Use
+  `O_DIRECTORY | O_NOFOLLOW`, `dir_fd` operations, and descriptor identity
+  checks for destructive filesystem operations.
+- Revalidate every personal-file snapshot immediately before acting. Permanent
+  unlink must validate the parent chain and complete snapshot through the parent
+  descriptor used for `unlink(..., dir_fd=...)`.
 - Do not broaden cache cleanup into home configuration, SSH/GPG data, Trash
-  internals, or system trees.
+  internals, or system trees. Cache traversal must reject different devices and
+  mount IDs, including same-device bind mounts, and fail closed when boundary
+  verification is unavailable.
 - Tests must use temporary directories. They must never delete or move real
-  user data or invoke destructive host tools.
+  user data or invoke destructive host tools. A real bind-mount test requires
+  explicit authorization and a disposable fixture; unit simulations are not
+  real-mount evidence.
 - Do not modify, test, format, or delete the unrelated `../taskvault` project.
 
 If you are uncertain whether a cleanup action is safe, leave it report-only.
@@ -48,6 +56,10 @@ python3 -m compileall -q appssweep tests
 python3 -m unittest discover -v
 ```
 
+Current result: 166 tests total; 165 pass and 1 Rich-only test skips without
+Rich; all 166 pass with Rich. Run race tests as an unprivileged user; the
+permission-dependent cases skip under root.
+
 Optional lint and Rich checks:
 
 ```bash
@@ -70,7 +82,9 @@ describe a mock as real Fedora validation.
   exact displayed numbering.
 - Prefer small modules and focused functions over adding responsibilities to
   `cli.py`.
-- Add a regression test with every bug fix.
+- Add a regression test with every bug fix. Race and boundary fixes need both
+  a victim-outside-the-target assertion and proof that authorized cleanup still
+  works.
 - Update user-facing documentation when behavior changes.
 
 ### Adding a cleanup action

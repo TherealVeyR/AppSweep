@@ -5,10 +5,13 @@ from a Flatpak sandbox when it requires a real Fedora host.
 
 ## Code and automated verification
 
-- [x] Working tree is clean and the intended release commit is checked out.
+- [ ] Working tree is clean and the intended release commit is checked out.
+      The remediation is committed on `main`; the temporary
+      `INDEPENDENT_VALIDATION_REPORT.md` remains untracked.
 - [x] `python3 -m compileall -q appssweep tests` succeeds.
-- [x] `python3 -m unittest discover -v` passes without Rich.
-- [x] The full suite passes in a venv with `rich` installed.
+- [x] `python3 -m unittest discover -v` passes without Rich
+      (165 passed, 1 Rich-only skip, 166 total).
+- [x] The full suite passes in a venv with `rich` installed (166/166).
 - [x] `ruff check appssweep tests` passes (optional lint gate).
 - [x] Wheel/sdist packaging configuration is declared in `pyproject.toml`.
 - [ ] Re-run `python3 -m build` or `pip wheel --no-deps .` on the final source.
@@ -28,6 +31,16 @@ from a Flatpak sandbox when it requires a real Fedora host.
 - [x] Root execution is refused.
 - [x] Every executable command uses an argument list, never a shell.
 - [x] Cache cleanup remains symlink-safe and allowlisted.
+- [x] Cache cleanup uses descriptor-relative no-follow traversal, final
+      path/descriptor identity checks, and mount-ID boundary checks. It fails
+      closed if those checks are unavailable.
+- [x] Permanent personal unlink uses an opened parent descriptor and validates
+      the complete file snapshot immediately before `unlink(..., dir_fd=...)`.
+- [x] Deterministic race regressions cover cache target/nested-directory swaps,
+      personal parent swaps, and selected-file identity changes. Outside victims
+      remain unchanged; authorized cleanup still works.
+- [x] Scanner reopens queued directories with `O_NOFOLLOW`, verifies
+      device/inode identity, and enumerates incrementally.
 - [x] Protected paths and cache-root overrides are rechecked.
 - [x] Personal-file snapshots are revalidated before moving or deleting.
 - [x] Permanent personal deletion requires `DELETE PERMANENTLY`.
@@ -45,12 +58,15 @@ from a Flatpak sandbox when it requires a real Fedora host.
 - [ ] `/home`, `/var`, `/usr`, `/boot`, caches, logs, and Trash are represented
       without nested double counting.
 - [ ] Permission failures and skipped mounts are reported visibly.
+- [ ] An authorized real same-device bind mount is skipped by default and
+      scanned when explicitly selected as a root; cache cleanup refuses to
+      cross it. Current coverage is simulated, not real-mount evidence.
 - [x] The top-50 table uses exact displayed numbering and resolves selections
       against that exact order.
 - [x] Single, comma, range, mixed, `all`, `none`, `cancel`, and exclusion
       selections work.
-- [x] Invalid, reversed, out-of-range, disabled, duplicate, and empty selections
-      are handled predictably.
+- [x] Invalid, reversed, out-of-range, oversized, disabled, duplicate, and
+      empty selections are handled predictably.
 - [x] JSON and CSV exports match the displayed report.
 - [x] CSV formula neutralization is active.
 - [x] Exports are mode `0600` and written atomically.
@@ -94,7 +110,9 @@ these items from mocked tests.
 
 ## Repository and publication
 
-- [x] `git status` is clean after the final verification run.
+- [ ] `git status` is clean after the final verification run. The remediation
+      is committed; the temporary independent validation report remains
+      untracked.
 - [x] No secrets, credentials, personal scan data, audit logs, reports, build
       artifacts, or virtual environments are tracked.
 - [x] `../taskvault` remains untouched.

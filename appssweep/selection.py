@@ -112,7 +112,7 @@ def parse_selection(
             continue
 
         if NUMBER_RE.fullmatch(body):
-            number = int(body)
+            number = _parse_number(body, "selection number")
             _validate_number(number, choices, eligible)
             if exclude:
                 exclusions.add(number)
@@ -123,10 +123,24 @@ def parse_selection(
 
         range_match = RANGE_RE.fullmatch(body)
         if range_match:
-            start = int(range_match.group(1))
-            end = int(range_match.group(2))
+            start = _parse_number(range_match.group(1), "range start")
+            end = _parse_number(range_match.group(2), "range end")
             if start > end:
                 raise SelectionError(f"invalid range {body}: start is greater than end")
+            if not choices:
+                raise SelectionError("there are no selectable items")
+            lowest = min(choices)
+            highest = max(choices)
+            if start < lowest or end > highest:
+                raise SelectionError(
+                    f"range {body} is outside this report "
+                    f"(valid range: {lowest}-{highest})"
+                )
+            span = end - start + 1
+            if span > len(choices):
+                raise SelectionError(
+                    f"range {body} is larger than the {len(choices)} selectable items"
+                )
             range_numbers = set(range(start, end + 1))
             if not range_numbers:
                 raise SelectionError(f"invalid range {body}")
@@ -156,6 +170,13 @@ def parse_selection(
             if group_of(choices[number]) not in excluded_groups
         }
     return ParsedSelection(ids=selected, from_all=from_all, empty=not selected)
+
+
+def _parse_number(text: str, label: str) -> int:
+    try:
+        return int(text)
+    except ValueError as exc:
+        raise SelectionError(f"{label} is too large or invalid") from exc
 
 
 def _validate_number(

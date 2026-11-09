@@ -26,12 +26,12 @@ CLI arguments
     ├─ parse categories, sizes, exports
     ▼
 Read-only scan (StorageScanner)
-    ├─ mount discovery and boundary pruning
-    ├─ os.scandir traversal, no symlink following
-    ├─ hardlink accounting
+    ├─ mount discovery; prune every nested mount boundary
+    ├─ descriptor-relative directory traversal, no symlink following
+    ├─ global hardlink accounting
     ├─ permission and skipped-path reporting
     ├─ top-N personal-file heap
-    └─ progress + cancellation
+    └─ progress + incremental cancellation
     ▼
 Discovery (discover_cleanup)
     ├─ detect optional host tools from PATH (no execution)
@@ -72,6 +72,7 @@ Authorization + execution (CleanupEngine)
     ├─ revalidate every personal snapshot
     ├─ append cleanup_started to the private audit log
     ├─ run allowlisted actions one at a time
+    ├─ cache/personal deletion through verified descriptors
     ├─ append cleanup_finished or cleanup_refused
     └─ report before/after free space
 ```
@@ -86,7 +87,7 @@ Authorization + execution (CleanupEngine)
 | `appssweep/audit.py` | Private append-only cleanup audit log: path resolution, safe directory/file creation, JSON-lines plan/result records. |
 | `appssweep/models.py` | Shared dataclasses/enums: `RiskGroup`, `ActionKind`, `FileSnapshot`, `ScanConfig`, `ScanResult`, `CleanupItem`, `CleanupPlan`, `Authorization`, execution results, report models. |
 | `appssweep/filesystem.py` | Mount parsing, local/network/virtual classification, boundary checks, targeted measurement, filesystem capacity discovery. |
-| `appssweep/scanner.py` | Main read-only traversal, progress, cancellation, hardlink accounting, permission tracking, top-N heap, personal-file filtering. |
+| `appssweep/scanner.py` | Descriptor-relative read-only traversal, global hardlink accounting, mount pruning, progress, cancellation callbacks, permission tracking, top-N heap, personal-file filtering. |
 | `appssweep/filetypes.py` | Conservative extension-based file classification. |
 | `appssweep/large_files.py` | Quick-scan folder list, personal exclusion rules, application roots, ranking helpers, selection map. |
 | `appssweep/capabilities.py` | Read-only PATH detection for optional host tools, actionable limits, and explicit mock/unverified status. |
@@ -97,7 +98,7 @@ Authorization + execution (CleanupEngine)
 | `appssweep/cache_cleaner.py` | User/system/app cache discovery and scoped cleanup items. |
 | `appssweep/log_cleaner.py` | Journal, rotated logs, crash dumps, temporary files, and report-only system data. |
 | `appssweep/trash_manager.py` | Trash size/entry discovery and `gio trash --empty` item. |
-| `appssweep/safety.py` | Protected path policy, snapshot revalidation, symlink-safe cache removal, personal unlink, authorization coverage. |
+| `appssweep/safety.py` | Protected path policy, snapshot revalidation, descriptor-relative cache clearing and personal unlink, mount-ID boundary checks, authorization coverage. |
 | `appssweep/cleanup_engine.py` | Exact plan validation, allowlisted command validation, execution, Trash/permanent handling, free-space measurement. |
 | `appssweep/runner.py` | Subprocess wrapper using argument lists; `pkexec` only when requested; sanitizes and bounds output. |
 | `appssweep/selection.py` | Number/range/group/all/none/cancel/exclusion parser and exact resolution. |
@@ -159,9 +160,14 @@ explicitly authorized.
   `/usr`, `/boot`, `/opt`, `/etc`, `/root`, `/srv`, and disk-backed `/tmp`
   when appropriate, and removes duplicate nested roots on the same device. A
   read-only `/usr` image on an immutable Fedora system is included for storage
-  analysis. It skips virtual, network, and external mounts.
+  analysis. Every mount boundary nested below a traversal root is pruned,
+  including same-device bind mounts, so one tree is not counted through two
+  paths. A separately mounted local directory is scanned from its own explicit
+  root. Virtual, network, and external mounts are skipped.
 - **CUSTOM** requires one or more existing `--path` values. A custom root inside
   a normally skipped mount is allowed because the user explicitly selected it.
+  An explicitly selected nested mount root is scanned once; other nested mount
+  points below it remain pruned.
 
 A Flatpak sandbox cannot reach the host root reliably, so FULL mode falls back
 to the accessible home folder and reports the limitation. Memory-backed tmpfs is
@@ -170,17 +176,25 @@ examined by the report-only temporary-file discovery step.
 
 ### Traversal
 
-`StorageScanner` uses `os.scandir` with an explicit stack rather than
-`os.walk`:
+`StorageScanner` uses `os.scandir` through opened directory descriptors with an
+explicit stack rather than `os.walk`:
 
-- `lstat` / `follow_symlinks=False` everywhere
+- path entries are inspected with `lstat` / `follow_symlinks=False`; child
+  stats use `dir_fd`
+- queued directories are reopened with `O_DIRECTORY | O_NOFOLLOW`, then matched
+  by device and inode before use
+- directory entries are enumerated incrementally and cancellation is consulted
+  inside the loop, so a huge directory does not need to be fully materialized
 - symlinks are counted and reported, never followed
 - excluded and protected paths are pruned
-- mount boundaries are detected from the live mount table
-- hardlinks are counted once for storage and ranking via `(st_dev, st_ino)`
+- every nested mount point is detected from the live mount table and pruned;
+  an explicitly selected nested root is still scanned from its own entry
+- hardlinks are accounted once globally, across all roots and loose-file roots,
+  via `(st_dev, st_ino)`
 - directories accumulate logical and allocated sizes for top-directory output
 - permission failures are captured, counted, and sampled
-- cancellation is checked periodically and preserves partial results
+- cancellation is checked periodically and through convenience callbacks; it
+  preserves partial results
 - a bounded heap keeps only the largest N personal candidates
 - progress is throttled
 
@@ -229,11 +243,16 @@ stdin or the command line.
 - top-level cache folders
 
 Cache cleanup uses explicit discovered child cache roots and keeps the target
-folder itself. Filesystem boundaries inside caches are not crossed. A cache
-root may override the generic home-tree guard only for
-`~/.var/app/<app>/cache`; sensitive trees such as `.ssh`, `.gnupg`, `.local`,
-and Flatpak app data or configuration cannot be reached through a
-misconfigured cache root.
+folder itself. The target is opened through a verified directory descriptor;
+directory entries are enumerated and removed relative to descriptors, and child
+directory descriptors are checked for the expected device and mount ID. A
+different filesystem or mount boundary, including a same-device bind mount, is
+never crossed. If the required no-follow/descriptor primitives or
+`/proc/self/fdinfo` mount-ID verification are unavailable, cache cleanup fails
+closed rather than falling back to a path-only removal. A cache root may
+override the generic home-tree guard only for `~/.var/app/<app>/cache`;
+sensitive trees such as `.ssh`, `.gnupg`, `.local`, and Flatpak app data or
+configuration cannot be reached through a misconfigured cache root.
 
 ### Personal files
 
@@ -244,6 +263,11 @@ misconfigured cache root.
   `permanent_personal` authorization bit.
 - Before execution, the snapshot must match path, owner, group, device, inode,
   size, and mtime.
+- Permanent unlink opens the approved personal root and the parent chain through
+  stable descriptors, verifies the parent path against the parent descriptor,
+  checks the selected file against the complete snapshot through that parent
+  descriptor, and calls `unlink(name, dir_fd=parent_fd)`. A parent or file
+  change in the final window is refused.
 - Parent symlinks, changed ownership, non-regular files, cache paths, Trash
   paths, and hidden paths are rejected.
 
@@ -336,6 +360,26 @@ directory, flushed, `chmod 0600`, and atomically replaced.
 
 ## Technical decisions
 
+### Descriptor-relative filesystem operations
+
+Paths are treated as untrusted between the scan and the destructive operation.
+Cache clearing anchors an opened, verified target descriptor, opens child
+directories with `O_DIRECTORY | O_NOFOLLOW`, verifies `fstat` identity, performs
+stat/unlink/rmdir with `dir_fd`, and rechecks the path-to-descriptor identity
+before the destructive loop. Personal permanent unlink similarly anchors the
+approved root, walks the parent chain by descriptor, and validates the full file
+snapshot through the final parent descriptor. Mount IDs come from
+`/proc/self/fdinfo/<fd>` so a renamed path cannot hide a bind mount. These
+operations fail closed when the platform lacks the required primitives.
+
+### Bounded selection parsing
+
+Selection ranges are checked against the available numbered choices before any
+set is constructed. A reversed range, an endpoint beyond the last choice, or a
+span larger than the choice list is rejected. Integer parsing is bounded so an
+absurdly long number produces a normal selection error instead of an uncaught
+`ValueError` or unbounded allocation.
+
 ### Standard library first
 
 There are no required Python dependencies. This keeps installation simple on
@@ -403,13 +447,19 @@ Tests use only `unittest`, temporary directories, and fakes:
   directories, and a `FakeRunner`.
 - `FakeRunner` implements the subset of `CommandRunner` used by discovery and
   cleanup, records calls, and returns scripted results.
-- Host tools are mocked rather than invoked.
+- Host tools are mocked rather than invoked. Real Fedora host validation is
+  still required.
 - `tests/test_capabilities.py` verifies PATH-only capability detection and
   warnings; `tests/test_host_integration_mocks.py` is explicitly labelled as
   mocked coverage for rpm-ostree, RPM, and journalctl paths.
-- Scanner tests create real directory trees in temporary roots.
+- Scanner tests create real directory trees in temporary roots, including
+  directory-replacement races, cross-root hard links, same-device mountinfo
+  fixtures, and cancellation during a wide directory.
 - Safety tests exercise real `lstat`/unlink/cache-removal behavior inside
-  temporary directories.
+  temporary directories. Deterministic race tests replace cache targets, nested
+  cache directories, personal parents, and files at controlled check/use
+  windows. Real bind mounts are not created; mount-boundary policy branches use
+  simulated mount IDs and are labelled as such.
 - CLI tests run `main()` with redirected streams and temporary HOME/XDG
   variables.
 - Audit tests use temporary state directories and verify privacy, JSON-lines
@@ -418,7 +468,8 @@ Tests use only `unittest`, temporary directories, and fakes:
   report-only path.
 - UI tests verify exact top-50 numbering and optional Rich rendering.
 
-The suite never performs destructive cleanup outside temporary test roots.
+The suite never performs destructive cleanup outside temporary test roots. Race
+tests that depend on the current user's permissions are skipped under root.
 
 ## Non-goals
 

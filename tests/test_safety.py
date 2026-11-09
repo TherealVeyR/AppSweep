@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from appssweep.cleanup_engine import CleanupEngine
@@ -195,6 +196,374 @@ class SafetyTests(unittest.TestCase):
         with self.assertRaises(SafetyError):
             self.policy.remove_personal_file(snapshot)
         self.assertTrue(file.exists())
+
+    @unittest.skipIf(
+        os.geteuid() == 0, "deterministic race tests require an unprivileged user"
+    )
+    def test_clear_cache_target_remains_anchored_if_directory_is_swapped(self) -> None:
+        inside = write_file(self.cache / "inside.bin", 512)
+        outside = self.home / "outside-cache"
+        outside.mkdir()
+        victim = write_file(outside / "keep-me.txt", 23)
+        moved = self.home / ".cache" / "app-original"
+        real_scandir = os.scandir
+        swapped = False
+
+        def swap_before_scandir(target):
+            nonlocal swapped
+            if not swapped:
+                swapped = True
+                os.rename(self.cache, moved)
+                os.symlink(outside, self.cache)
+            return real_scandir(target)
+
+        with patch("appssweep.safety.os.scandir", side_effect=swap_before_scandir):
+            result = self.policy.clear_cache_target(str(self.cache))
+
+        self.assertTrue(swapped)
+        self.assertEqual(victim.read_bytes(), b"x" * 23)
+        self.assertFalse(inside.exists())
+        self.assertFalse((moved / "inside.bin").exists())
+        self.assertEqual(result.errors, [])
+        self.assertEqual(result.removed_files, 1)
+
+    @unittest.skipIf(
+        os.geteuid() == 0, "deterministic race tests require an unprivileged user"
+    )
+    def test_clear_cache_target_stays_anchored_for_swapped_nested_directory(
+        self,
+    ) -> None:
+        nested = self.cache / "nested"
+        inside = write_file(nested / "inside.bin", 256)
+        outside = self.home / "outside-nested"
+        outside.mkdir()
+        victim = write_file(outside / "keep-me.txt", 23)
+        moved = self.home / ".cache" / "app-nested-original"
+        real_scandir = os.scandir
+        calls = {"count": 0}
+
+        def swap_on_nested_scandir(target):
+            calls["count"] += 1
+            if calls["count"] == 2:
+                os.rename(nested, moved)
+                os.symlink(outside, nested)
+            return real_scandir(target)
+
+        with patch("appssweep.safety.os.scandir", side_effect=swap_on_nested_scandir):
+            result = self.policy.clear_cache_target(str(self.cache))
+
+        self.assertGreaterEqual(calls["count"], 2)
+        self.assertEqual(victim.read_bytes(), b"x" * 23)
+        self.assertFalse(inside.exists())
+        self.assertTrue(any("changed" in error for error in result.errors))
+
+    @unittest.skipIf(
+        os.geteuid() == 0, "deterministic race tests require an unprivileged user"
+    )
+    def test_clear_cache_target_refuses_target_swap_before_enumeration(self) -> None:
+        write_file(self.cache / "inside.bin", 512)
+        outside = self.home / "outside-refused"
+        outside.mkdir()
+        victim = write_file(outside / "keep-me.txt", 23)
+        moved = self.home / ".cache" / "app-refused"
+        original_verify = self.policy._verify_directory_path
+        swapped = False
+
+        def swap_then_verify(
+            path: str,
+            fd: int,
+            expected_dev: int,
+            expected_ino: int,
+            description: str,
+        ) -> None:
+            nonlocal swapped
+            if not swapped and path == str(self.cache):
+                swapped = True
+                os.rename(self.cache, moved)
+                os.symlink(outside, self.cache)
+            return original_verify(path, fd, expected_dev, expected_ino, description)
+
+        with (
+            patch.object(
+                self.policy, "_verify_directory_path", side_effect=swap_then_verify
+            ),
+            self.assertRaises(SafetyError),
+        ):
+            self.policy.clear_cache_target(str(self.cache))
+
+        self.assertTrue(swapped)
+        self.assertEqual(victim.read_bytes(), b"x" * 23)
+        self.assertTrue((moved / "inside.bin").exists())
+
+    def test_clear_cache_target_removes_regular_file(self) -> None:
+        cache_file = write_file(self.cache / "cache-file.bin", 321)
+
+        result = self.policy.clear_cache_target(str(cache_file))
+
+        self.assertFalse(cache_file.exists())
+        self.assertEqual(result.removed_files, 1)
+        self.assertEqual(result.bytes_removed, 321)
+        self.assertEqual(result.errors, [])
+
+    def test_clear_cache_target_skips_simulated_filesystem_boundary(self) -> None:
+        boundary = self.cache / "boundary"
+        inside = write_file(boundary / "inside.bin", 64)
+        real_stat = os.stat
+
+        def fake_stat(path, *args, **kwargs):
+            result = real_stat(path, *args, **kwargs)
+            if kwargs.get("dir_fd") is not None and os.fspath(path) == "boundary":
+                return SimpleNamespace(
+                    st_mode=result.st_mode,
+                    st_dev=result.st_dev + 1,
+                    st_ino=result.st_ino,
+                    st_uid=result.st_uid,
+                    st_size=result.st_size,
+                )
+            return result
+
+        # Simulated device difference: a real secondary/bind mount was not
+        # authorized in this environment. This verifies the policy branch.
+        with patch("appssweep.safety.os.stat", side_effect=fake_stat):
+            result = self.policy.clear_cache_target(str(self.cache))
+
+        self.assertTrue(inside.exists())
+        self.assertTrue(
+            any("separate filesystem" in error for error in result.errors)
+        )
+
+    def test_clear_cache_target_skips_simulated_same_device_mount(self) -> None:
+        boundary = self.cache / "bind-boundary"
+        inside = write_file(boundary / "inside.bin", 64)
+        calls = {"count": 0}
+
+        def fake_mount_id(fd: int) -> int:
+            calls["count"] += 1
+            return 10 if calls["count"] == 1 else 11
+
+        # Simulated same-device bind mount: no real mount was authorized.
+        with patch.object(
+            self.policy, "_mount_id_for_fd", side_effect=fake_mount_id
+        ):
+            result = self.policy.clear_cache_target(str(self.cache))
+
+        self.assertGreaterEqual(calls["count"], 2)
+        self.assertTrue(inside.exists())
+        self.assertTrue(
+            any("mount boundary" in error for error in result.errors)
+        )
+
+    def test_clear_cache_target_refuses_without_mount_boundary_verification(self) -> None:
+        inside = write_file(self.cache / "inside.bin", 64)
+
+        with (
+            patch.object(self.policy, "_mount_id_for_fd", return_value=None),
+            self.assertRaises(SafetyError),
+        ):
+            self.policy.clear_cache_target(str(self.cache))
+
+        self.assertEqual(inside.read_bytes(), b"x" * 64)
+
+    @unittest.skipIf(
+        os.geteuid() == 0, "deterministic race tests require an unprivileged user"
+    )
+    def test_clear_cache_file_does_not_unlink_through_replaced_parent(self) -> None:
+        cache_file = write_file(self.cache / "cache-file.bin", 23)
+        outside = self.home / "outside-cache-file"
+        outside.mkdir()
+        victim = write_file(outside / "cache-file.bin", 23)
+        moved = self.home / ".cache" / "app-file-original"
+        real_unlink = os.unlink
+        swapped = False
+
+        def swap_before_unlink(path, *args, **kwargs):
+            nonlocal swapped
+            if not swapped:
+                swapped = True
+                os.rename(self.cache, moved)
+                os.symlink(outside, self.cache)
+            return real_unlink(path, *args, **kwargs)
+
+        with patch("appssweep.safety.os.unlink", side_effect=swap_before_unlink):
+            result = self.policy.clear_cache_target(str(cache_file))
+
+        self.assertTrue(swapped)
+        self.assertEqual(victim.read_bytes(), b"x" * 23)
+        self.assertFalse((moved / "cache-file.bin").exists())
+        self.assertEqual(result.removed_files, 1)
+
+    @unittest.skipIf(
+        os.geteuid() == 0, "deterministic race tests require an unprivileged user"
+    )
+    def test_remove_personal_file_does_not_unlink_through_replaced_parent(self) -> None:
+        documents = self.home / "Documents"
+        selected = write_file(documents / "report.txt", 23)
+        outside = self.home / "outside-personal"
+        outside.mkdir()
+        victim = write_file(outside / "report.txt", 23)
+        moved = self.home / "Documents-original"
+        snapshot = snapshot_for(selected)
+        real_unlink = os.unlink
+        swapped = False
+
+        def swap_before_unlink(path, *args, **kwargs):
+            nonlocal swapped
+            if not swapped:
+                swapped = True
+                os.rename(documents, moved)
+                os.symlink(outside, documents)
+            return real_unlink(path, *args, **kwargs)
+
+        with patch("appssweep.safety.os.unlink", side_effect=swap_before_unlink):
+            result = self.policy.remove_personal_file(snapshot)
+
+        self.assertTrue(swapped)
+        self.assertEqual(victim.read_bytes(), b"x" * 23)
+        self.assertFalse((moved / "report.txt").exists())
+        self.assertEqual(result.removed_files, 1)
+
+    @unittest.skipIf(
+        os.geteuid() == 0, "deterministic race tests require an unprivileged user"
+    )
+    def test_remove_personal_file_refuses_parent_swap_before_final_check(self) -> None:
+        documents = self.home / "Documents"
+        selected = write_file(documents / "report.txt", 23)
+        outside = self.home / "outside-check"
+        outside.mkdir()
+        victim = write_file(outside / "report.txt", 23)
+        moved = self.home / "Documents-check-original"
+        snapshot = snapshot_for(selected)
+        original_verify = self.policy._verify_directory_path
+        swapped = False
+
+        def swap_then_verify(
+            path: str,
+            fd: int,
+            expected_dev: int,
+            expected_ino: int,
+            description: str,
+        ) -> None:
+            nonlocal swapped
+            if not swapped and path == str(documents):
+                swapped = True
+                os.rename(documents, moved)
+                os.symlink(outside, documents)
+            return original_verify(path, fd, expected_dev, expected_ino, description)
+
+        with (
+            patch.object(
+                self.policy, "_verify_directory_path", side_effect=swap_then_verify
+            ),
+            self.assertRaises(SafetyError),
+        ):
+            self.policy.remove_personal_file(snapshot)
+
+        self.assertTrue(swapped)
+        self.assertEqual(victim.read_bytes(), b"x" * 23)
+        self.assertTrue((moved / "report.txt").exists())
+
+    @unittest.skipIf(
+        os.geteuid() == 0, "deterministic race tests require an unprivileged user"
+    )
+    def test_remove_personal_file_refuses_parent_replaced_by_real_directory(
+        self,
+    ) -> None:
+        documents = self.home / "Documents"
+        selected = write_file(documents / "report.txt", 23)
+        outside = self.home / "outside-real-dir"
+        outside.mkdir()
+        write_file(outside / "report.txt", 23)
+        moved = self.home / "Documents-real-original"
+        snapshot = snapshot_for(selected)
+        original_verify = self.policy._verify_directory_path
+        swapped = False
+
+        def swap_then_verify(
+            path: str,
+            fd: int,
+            expected_dev: int,
+            expected_ino: int,
+            description: str,
+        ) -> None:
+            nonlocal swapped
+            if not swapped and path == str(documents):
+                swapped = True
+                os.rename(documents, moved)
+                os.rename(outside, documents)
+            return original_verify(path, fd, expected_dev, expected_ino, description)
+
+        with (
+            patch.object(
+                self.policy, "_verify_directory_path", side_effect=swap_then_verify
+            ),
+            self.assertRaises(SafetyError),
+        ):
+            self.policy.remove_personal_file(snapshot)
+
+        self.assertTrue(swapped)
+        self.assertEqual((documents / "report.txt").read_bytes(), b"x" * 23)
+        self.assertEqual((moved / "report.txt").read_bytes(), b"x" * 23)
+
+    @unittest.skipIf(
+        os.geteuid() == 0, "deterministic race tests require an unprivileged user"
+    )
+    def test_remove_personal_file_refuses_changed_inode_at_final_check(self) -> None:
+        selected = write_file(self.home / "Documents" / "report.txt", 23)
+        snapshot = snapshot_for(selected)
+        replacement = write_file(self.home / "replacement.bin", 23, byte=b"y")
+        real_stat = os.stat
+        swapped = False
+
+        def replace_before_final_stat(path, *args, **kwargs):
+            nonlocal swapped
+            if (
+                not swapped
+                and kwargs.get("dir_fd") is not None
+                and os.fspath(path) == selected.name
+            ):
+                swapped = True
+                os.replace(replacement, selected)
+            return real_stat(path, *args, **kwargs)
+
+        with (
+            patch("appssweep.safety.os.stat", side_effect=replace_before_final_stat),
+            self.assertRaises(SafetyError),
+        ):
+            self.policy.remove_personal_file(snapshot)
+
+        self.assertTrue(swapped)
+        self.assertEqual(selected.read_bytes(), b"y" * 23)
+
+    @unittest.skipIf(
+        os.geteuid() == 0, "deterministic race tests require an unprivileged user"
+    )
+    def test_remove_personal_file_refuses_changed_mtime_at_final_check(self) -> None:
+        selected = write_file(self.home / "Documents" / "report.txt", 23)
+        snapshot = snapshot_for(selected)
+        real_stat = os.stat
+        mutated = False
+
+        def modify_before_final_stat(path, *args, **kwargs):
+            nonlocal mutated
+            if (
+                not mutated
+                and kwargs.get("dir_fd") is not None
+                and os.fspath(path) == selected.name
+            ):
+                mutated = True
+                selected.write_bytes(b"z" * 23)
+                changed = snapshot.mtime_ns + 1_000_000_000
+                os.utime(selected, ns=(changed, changed))
+            return real_stat(path, *args, **kwargs)
+
+        with (
+            patch("appssweep.safety.os.stat", side_effect=modify_before_final_stat),
+            self.assertRaises(SafetyError),
+        ):
+            self.policy.remove_personal_file(snapshot)
+
+        self.assertTrue(mutated)
+        self.assertEqual(selected.read_bytes(), b"z" * 23)
 
     def test_authorization_covers_exact_plan(self) -> None:
         item = CleanupItem(

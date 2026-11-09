@@ -325,8 +325,13 @@ def is_mount_boundary(
     if path_dev != root_dev:
         return True, "different filesystem"
     mount = (mount_map or {}).get(os.path.normpath(os.path.abspath(path)))
-    if mount and (mount.fstype.lower() in VIRTUAL_FSTYPES or is_network_filesystem(mount.fstype)):
-        return True, f"{mount.fstype} mount"
+    if mount:
+        if (
+            mount.fstype.lower() in VIRTUAL_FSTYPES
+            or is_network_filesystem(mount.fstype)
+        ):
+            return True, f"{mount.fstype} mount"
+        return True, f"{mount.fstype} mount boundary"
     return False, ""
 
 
@@ -450,13 +455,17 @@ def measure_path(
                         )
                     continue
                 mount = mount_map.get(os.path.normpath(entry.path))
-                if mount and (
-                    mount.fstype.lower() in VIRTUAL_FSTYPES
-                    or is_network_filesystem(mount.fstype)
-                ):
+                if mount:
                     if len(result.skipped) < max_issues:
+                        if (
+                            mount.fstype.lower() in VIRTUAL_FSTYPES
+                            or is_network_filesystem(mount.fstype)
+                        ):
+                            reason = "virtual/network mount"
+                        else:
+                            reason = "nested mount boundary"
                         result.skipped.append(
-                            SkippedPath(entry.path, "virtual/network mount", mount.fstype)
+                            SkippedPath(entry.path, reason, mount.fstype)
                         )
                     continue
                 stack.append(entry.path)

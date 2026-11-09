@@ -27,6 +27,18 @@ Recorded on 2026-11-09 in the development sandbox:
 | `pkexec` | No | Not available; mocked paths only. |
 | `gio` | Yes, 2.88.3 | Binary present, but no real host Trash operation was performed. |
 
+### 2026-11-09 validation-remediation note
+
+No host-tool status changed during the independent-validation remediation. The
+automated suite grew to 166 tests and now includes descriptor-relative
+cache/personal deletion, directory-swap races, scanner reopen checks, global
+hardlink accounting, bounded selection ranges, and mount-boundary policy
+fixtures. No real `dnf`, `dnf5`, `rpm`, `rpm-ostree`, `flatpak`, `journalctl`,
+`pkexec`, or `gio` operation was performed. A real secondary filesystem or
+same-device bind mount was not created; scanner mount policy uses mountinfo
+fixtures and cache mount checks use simulated mount IDs in unit tests. Those
+results are not real-host or real-mount evidence.
+
 Consequences:
 
 - The application still scans and reports where its filesystem permissions
@@ -87,6 +99,9 @@ Run the mocked suite:
 python3 -m compileall -q appssweep tests
 python3 -m unittest discover -v
 ```
+
+Current result: 166 tests total; 165 pass and 1 Rich-only test skips without
+Rich; all 166 pass with Rich. These are mock/unit results, not host validation.
 
 Optional Rich run:
 
@@ -229,12 +244,33 @@ package-manager checks.
       caches, logs, and Trash are represented where accessible.
 - [ ] Confirm separately mounted local filesystems are included and virtual,
       network, and external mounts are skipped with reasons.
+- [ ] Create a disposable same-device bind mount below a scan root and confirm
+      it is pruned by default and reported as a boundary. Select it explicitly
+      as a custom root and confirm it is scanned once, not twice. Remove the
+      fixture mount afterward.
 - [ ] Confirm there is no double counting between nested roots.
 - [ ] Confirm permission failures are visible and do not pretend coverage is
       complete.
 - [ ] Check runtime and memory use on a large home directory.
 
-### 11. Python 3.10 compatibility
+### 11. Cache and personal-deletion boundary test
+
+Use a disposable test account and disposable fixtures only.
+
+- [ ] Create a temporary cache directory with a file inside, plus a bind mount
+      inside that directory pointing at a separate disposable directory outside
+      the cache tree. Confirm the cache cleanup policy reports the mount
+      boundary and leaves the outside fixture intact.
+- [ ] Confirm the same check works for a same-device bind mount, not only a
+      separate device.
+- [ ] Create a disposable personal file and exercise the normal Trash path;
+      confirm no permanent-delete fallback occurs.
+- [ ] If permanent deletion is explicitly authorized on disposable data,
+      confirm a changed parent or changed file is reported and not removed.
+- [ ] Record that `/proc/self/fdinfo` mount-ID verification is available on the
+      host; if it is not, confirm cache cleanup fails closed instead of deleting.
+
+### 12. Python 3.10 compatibility
 
 - [ ] Create a Python 3.10 environment on a supported Fedora release.
 - [ ] Run:

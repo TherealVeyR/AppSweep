@@ -11,9 +11,18 @@ Status legend:
 
 ## Known bugs
 
-None known in the code paths covered by the automated suite. This does not mean
-the host-tool integrations have been proven on a real Fedora installation; see
-the P1 validation items below.
+No known P0/P1 code bugs remain in the code paths covered by the automated
+suite. The independent validation findings `BUG-001` through `BUG-004` and
+`POT-001` through `POT-005` are fixed in the remediation commit on `main`. The
+fixes and their regressions are recorded in `PROGRESS.md`. The source report
+`INDEPENDENT_VALIDATION_REPORT.md` remains untracked as a temporary validation
+artifact.
+
+This does not mean the host-tool integrations or real mount behavior have been
+proven on a real Fedora installation. A real secondary filesystem or
+same-device bind mount was not created in this environment; mount policy uses
+mountinfo unit fixtures for the scanner and simulated mount IDs for cache
+deletion. See the P1 validation items below.
 
 ## P0 — release blockers
 
@@ -21,6 +30,14 @@ No known P0 items.
 
 ## P1 — required before claiming full release coverage
 
+- [x] **Commit the independent-validation remediation.** The fixes are
+      committed on `main`; `INDEPENDENT_VALIDATION_REPORT.md` remains untracked
+      as a temporary validation artifact.
+- [ ] **Validate mount behavior with authorized real fixtures.** Create a
+      disposable same-device bind mount and a separate-device mount, then
+      confirm the scanner prunes them, an explicitly selected root is still
+      scanned, and cache cleanup refuses to cross the mount boundary. Current
+      coverage is unit fixtures and simulated mount IDs only.
 - [ ] **Validate on a real Fedora host with real system tools.** Follow the
       manual checklist in `INTEGRATIONS.md`; mocked tests are not a substitute.
   - [ ] Capability detection: confirm `HOST INTEGRATIONS` matches

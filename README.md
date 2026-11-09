@@ -36,6 +36,8 @@ the confirmation prompt.
 - Shows a `HOST INTEGRATIONS` section so missing optional Fedora tools are
   visible before you choose a cleanup category.
 - Never runs a shell. Cleanup commands are allowlisted and validated.
+- Performs cache cleanup and permanent personal unlink through verified
+  directory descriptors, and refuses to cross filesystem or mount boundaries.
 - Refuses to run the whole program as root. Individual system commands request
   administrator approval through `pkexec` only when they are needed.
 
@@ -214,10 +216,14 @@ Permanent deletion is a separate choice. It requires:
 If the second phrase is not typed exactly, the files are moved to Trash
 instead. AppSweep never silently falls back to permanent deletion.
 
-Before any personal file is changed, AppSweep re-checks its path, device,
-inode, size, and modification time against the scan snapshot. If any selected
-file fails that initial check, the whole plan stops before changes are made.
-A file that changes later is skipped and reported.
+Before any personal file is changed, AppSweep re-checks its path, owner,
+device, inode, size, and modification time against the scan snapshot. If any
+selected file fails that initial check, the whole plan stops before changes are
+made. Permanent deletion opens the approved root and every parent below it
+through stable directory descriptors, rechecks the parent and file through
+those descriptors, and unlinks relative to the same parent descriptor. A parent
+or file that changes during that final window aborts before removal; a file
+that changes later in the plan is skipped and reported.
 
 ## Confirmation and execution
 
@@ -280,16 +286,24 @@ yourself if the history becomes large. Scan reports are not written to this log.
 - **No shell.** Commands are argument lists; `shell=True` is never used.
 - **Allowlisted actions.** Every cleanup operation has a dedicated validated
   implementation. Arbitrary commands and paths are never accepted from input.
-- **No broad recursive deletion.** Cache removal is narrowly scoped and
-  symlink-safe. System cleanup is delegated to the official package tool.
+- **No broad recursive deletion.** Cache removal is narrowly scoped and uses
+  descriptor-relative, no-follow traversal. It refuses different filesystems
+  and mount-ID boundaries, including same-device bind mounts. System cleanup is
+  delegated to the official package tool.
 - **No app-wide root.** AppSweep refuses to run as root. `pkexec` wraps only
   the specific system command that needs approval.
 - **Protected paths.** Top-level cache folders, home configuration, SSH keys,
   GPG data, Trash internals, and system mount boundaries are protected from
   broad cleanup.
-- **Symlinks are never followed.** They are counted and reported.
+- **Symlinks are never followed.** Directories are opened with
+  `O_DIRECTORY | O_NOFOLLOW`; symlinks are counted and reported as entries.
 - **Snapshot revalidation.** Numbered selections cannot silently point at a
-  different file after the scan.
+  different file after the scan. Personal permanent deletion checks the full
+  snapshot again through the opened parent descriptor immediately before
+  `unlink`.
+- **Descriptor-relative deletion.** Cache and personal deletion use stable
+  directory descriptors, `dir_fd` operations, and identity rechecks instead of
+  re-resolving an untrusted path at the moment of removal.
 - **Cleanup audit logging.** Confirmed plans and results are written to a
   private append-only JSON-lines log.
 - **Dry-run by default.** `--report-only` and `--dry-run` never offer cleanup.
@@ -317,9 +331,15 @@ yourself if the history becomes large. Scan reports are not written to this log.
 - The cleanup audit log is append-only and has no automatic rotation yet.
 - Missing optional host tools are reported as capability limits, not as
   application failures. Dependent cleanup categories are skipped.
-- Real Fedora host tools have not been validated from this development sandbox;
-  see `INTEGRATIONS.md` for the manual checklist and `RELEASE_CHECKLIST.md` for
-  the release gates.
+- Directory cache cleanup refuses to run if descriptor-relative operations or
+  `/proc/self/fdinfo` mount-ID verification are unavailable; it does not fall
+  back to a path-only deletion.
+- Real Fedora host tools and real secondary/same-device bind mounts have not
+  been validated from this development sandbox. Mount policy uses unit fixtures
+  and simulated mount IDs; see `INTEGRATIONS.md` for the manual checklist and
+  `RELEASE_CHECKLIST.md` for the release gates.
+- The declared Python 3.10 minimum has not been exercised in this environment;
+  all recorded results are from Python 3.14.
 
 ## Troubleshooting
 
@@ -389,13 +409,17 @@ python3 -m compileall -q appssweep tests
 python3 -m unittest discover -v
 ```
 
-Coverage includes traversal, symlink handling, permission errors, mount
-boundaries, hardlink accounting, package and Flatpak detection, capability
-detection, selection parsing, authorization, cancellation, path safety, storage
-calculations, overlap detection, CSV formula neutralization, reporting, cleanup
-audit-log privacy/refusal, CLI flows, and the exact top-50 numbering shown
-during selection. Missing host tools are exercised with clearly labelled mocks;
-see `INTEGRATIONS.md` for what is and is not verified.
+Coverage includes descriptor-relative traversal, directory-swap races,
+symlink handling, permission errors, mount boundaries, mount-ID checks,
+global hardlink accounting, package and Flatpak detection, capability
+detection, bounded selection parsing, authorization, cancellation callbacks,
+path safety, storage calculations, overlap detection, CSV formula
+neutralization, reporting, cleanup audit-log privacy/refusal, CLI flows, and the
+exact top-50 numbering shown during selection. The suite currently has 166
+tests: 165 pass and 1 Rich-only test is skipped without Rich; all 166 pass with
+Rich. Missing host tools and real mount fixtures are exercised with clearly
+labelled mocks and simulations; see `INTEGRATIONS.md` for what is and is not
+verified.
 
 Run the optional Rich suite with:
 
