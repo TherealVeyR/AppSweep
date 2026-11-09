@@ -164,6 +164,9 @@ paths, Trash content previews, and the `--dry-run` alias.
   (optional lint; Ruff is not a runtime dependency).
 - [x] `pip install .` in a clean venv: console script reports `appssweep 1.0.0`
   and completes a quick scan.
+- [x] `pip wheel --no-deps .` builds `appssweep-1.0.0-py3-none-any.whl`;
+  inspection confirms `appssweep/audit.py` and the `appssweep =
+  appssweep.cli:main` console entry point are present.
 - [x] Rich manual rendering check: `supports_rich() == True`, banner and storage
   content render without error.
 - [x] Audit-log tests verify the `0600` file, `0700` directory, JSON-lines
@@ -179,8 +182,9 @@ paths, Trash content previews, and the `--dry-run` alias.
 ## Known limitations and unverified areas
 
 - The sandbox lacks real `dnf`, `rpm-ostree`, `flatpak`, `journalctl`, `rpm`,
-  and `gio`. Those integrations are tested with mocks and command-shape
-  validation only.
+  and `pkexec`; `gio` 2.88.3 is present but was not used against the real host
+  Trash during development. Host integrations are tested with mocks and
+  command-shape validation only.
 - Full host filesystem scanning and real package-manager cleanup have not been
   run on a full Fedora host in this environment.
 - Flatpak 1.18 has no supported non-interactive unused-ref dry run; the current

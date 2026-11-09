@@ -10,7 +10,9 @@ from a Flatpak sandbox when it requires a real Fedora host.
 - [x] `python3 -m unittest discover -v` passes without Rich.
 - [x] The full suite passes in a venv with `rich` installed.
 - [x] `ruff check appssweep tests` passes (optional lint gate).
-- [ ] `python3 -m build` or the chosen wheel/sdist build succeeds.
+- [x] `python3 -m build` or the chosen wheel/sdist build succeeds. Verified
+      with `pip wheel --no-deps .`; the standalone `build` module is unavailable
+      in this sandbox.
 - [x] A clean virtual environment install of the built package exposes the
       `appssweep` console script.
 - [x] No test performs destructive cleanup outside a temporary directory.

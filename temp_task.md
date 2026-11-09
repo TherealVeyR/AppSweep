@@ -58,8 +58,11 @@ sandbox.
   audit log.
 - `pip install --force-reinstall --no-deps .` in a clean venv: console script
   reports `appssweep 1.0.0` and completes a quick scan.
+- `pip wheel --no-deps .` builds a wheel containing `appssweep/audit.py` and the
+  `appssweep = appssweep.cli:main` entry point.
 - `../taskvault` remains untouched.
-- Real Fedora host tools remain unavailable in this Flatpak sandbox.
+- Real Fedora host tools remain unavailable in this Flatpak sandbox; `gio` is
+  present but was not used against the real host Trash.
 
 ## Next move
 

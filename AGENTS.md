@@ -187,10 +187,11 @@ ruff check appssweep tests
 ## Environment caveats
 
 The development sandbox is a Freedesktop Flatpak runtime, not a full Fedora
-host. It may lack `dnf`, `rpm-ostree`, `flatpak`, `journalctl`, and `gio`.
-Host-command behavior is therefore covered with mocks. A release candidate must
-still be validated on a real Fedora host before claiming full system-tool
-coverage.
+host. It may lack `dnf`, `rpm-ostree`, `flatpak`, `journalctl`, `rpm`, and
+`pkexec`; `gio` may be present but is not a substitute for validating real host
+Trash behavior. Host-command behavior is therefore covered with mocks. A release
+candidate must still be validated on a real Fedora host before claiming full
+system-tool coverage.
 
 The scanner deliberately skips tmpfs, virtual, network, and external mounts
 during a full storage scan. A custom scan root inside such a mount is allowed
