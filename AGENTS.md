@@ -5,10 +5,11 @@ AppSweep. Read it before changing code.
 
 ## Project location
 
-- Project root: `/home/Echo/Documents/Default Project/appssweep`
-- Package: `appssweep/`
+- Project root: the repository root containing this file (the `appsweep/`
+  directory in the author's workspace).
+- Package: `appsweep/`
 - Tests: `tests/`
-- Launcher: `bin/appssweep`
+- Launcher: `bin/appsweep`
 - Workspace sibling `../taskvault` is an unrelated project. Never modify,
   delete, format, or test it while working on AppSweep.
 
@@ -38,9 +39,12 @@ These are product requirements, not optional hardening:
    Cleanup requires `--interactive` and an explicit terminal confirmation.
 3. **No deletion without confirmation.** A plan only executes after the user
    types `CLEAN`.
-4. **Personal files default to Trash.** Never add a silent fallback to
-   permanent deletion. Permanent deletion requires the separate
-   `DELETE PERMANENTLY` phrase and the `permanent_personal` authorization flag.
+4. **Personal files are Trash-only in this release.** Never add a silent
+   fallback to permanent deletion. Permanent personal-file deletion is disabled
+   because a mode-0700 quarantine cannot be isolated from another process
+   running as the same UID. Re-enabling it requires a separately reviewed
+   privilege boundary; the legacy private quarantine algorithm is not a
+   boundary and must not be exposed.
 5. **No shell.** Never use `shell=True`, `os.system`, `eval`, or string-built
    commands. Commands are argument tuples and are validated immediately before
    execution.
@@ -54,9 +58,11 @@ These are product requirements, not optional hardening:
    operations where available. Symlinks are reported, never traversed as
    targets.
 9. **Revalidate before acting.** Personal files must match path, device, inode,
-   size, mtime, owner, and risk group from the scan snapshot. Permanent unlink
-   must validate the parent chain and full file snapshot through the opened
-   parent descriptor immediately before `unlink(..., dir_fd=...)`.
+   size, mtime, ctime, owner, and risk group from the scan snapshot. Moving a
+   personal file to Trash is a recoverable pathname handoff through Gio and
+   retains a documented same-UID final-component race. Do not claim that a
+   last-moment `stat` fixes that race, and do not claim universal inode-identity
+   protection for permanent deletion.
 10. **Stay inside the authorized tree.** Descriptor-relative cache traversal
     must reject different filesystems and mount IDs, including same-device bind
     mounts, and fail closed if boundary verification is unavailable. Do not
@@ -75,8 +81,10 @@ These are product requirements, not optional hardening:
     but no destructive action may run.
 16. **Audit confirmed cleanup attempts.** Record the exact plan before execution
     and the result or refusal afterward in the private append-only audit log.
-    A failed audit write is surfaced as a warning; it must not be silently
-    ignored or allowed to hide a cleanup result.
+    The audit directory must be `0700` (existing `0755`/`0711` directories may
+    be tightened, but group/world-writable directories are refused) and the log
+    file must be `0600`. A failed audit write is surfaced as a warning; it must
+    not be silently ignored or allowed to hide a cleanup result.
 17. **Do not claim completion without evidence.** "Done" means implemented,
     tested, and documented. A skipped test is not a passing test.
 
@@ -113,7 +121,7 @@ These are product requirements, not optional hardening:
 
 ## Git rules
 
-- The repository root is this `appssweep/` directory. Do not initialize a
+- The repository root is this `appsweep/` directory. Do not initialize a
   nested repository in the parent workspace or in `../taskvault`.
 - Use conventional commits at meaningful, verified milestones, for example
   `feat:`, `fix:`, `test:`, `docs:`, or `refactor:`.
@@ -130,18 +138,21 @@ These are product requirements, not optional hardening:
 Run from the project root:
 
 ```bash
-python3 -m compileall -q appssweep tests
+python3 -m compileall -q appsweep tests
 python3 -m unittest discover -v
 ```
 
-Current baseline (2026-11-09, independent-validation remediation):
+Current baseline (2026-11-11, final security remediation in the working tree):
 
-- 166 tests total.
-- 165 pass and 1 Rich-only test is skipped when Rich is not installed.
-- All 166 pass in a venv with `rich` installed.
-- `tests/test_safety.py` has 31 tests, including deterministic descriptor-swap
-  races. Run race tests as an unprivileged user; root skips permission-dependent
-  cases.
+- 185 tests total.
+- 184 pass and 1 Rich-only test is skipped when Rich is not installed.
+- The previous 175-test Rich-enabled suite passed. The current 185-test Rich
+  run is not available because the temporary Rich venv is gone.
+- `tests/test_safety.py` has 39 tests, including deterministic descriptor-swap,
+  final-unlink replacement, legacy quarantine-restoration, public
+  same-UID/permanent-deletion refusal, symlink/directory replacement, and ctime
+  regressions. Run race tests as an unprivileged user; root skips
+  permission-dependent cases.
 
 Rules for tests:
 
@@ -163,9 +174,9 @@ Rules for tests:
 Optional Rich verification:
 
 ```bash
-python3 -m venv /tmp/appssweep-rich-venv
-/tmp/appssweep-rich-venv/bin/pip install ".[rich]"
-/tmp/appssweep-rich-venv/bin/python -m unittest discover -v
+python3 -m venv /tmp/appsweep-rich-venv
+/tmp/appsweep-rich-venv/bin/pip install ".[rich]"
+/tmp/appsweep-rich-venv/bin/python -m unittest discover -v
 ```
 
 ## Documentation protocol
@@ -188,19 +199,19 @@ evidence exists, especially for real-Fedora-only items.
 
 ```bash
 # Source checkout
-./bin/appssweep --mode quick
-./bin/appssweep --mode full --report-only
-./bin/appssweep --mode full --dry-run
-./bin/appssweep --mode custom --path ~/Downloads --json report.json
+./bin/appsweep --mode quick
+./bin/appsweep --mode full --report-only
+./bin/appsweep --mode full --dry-run
+./bin/appsweep --mode custom --path ~/Downloads --json report.json
 
 # Install and verify packaging
 python3 -m venv .venv
 . .venv/bin/activate
 pip install .
-appssweep --version
+appsweep --version
 
 # Lint (optional; ruff is not a project dependency)
-ruff check appssweep tests
+ruff check appsweep tests
 ```
 
 ## Environment caveats
@@ -229,7 +240,7 @@ A change is complete only when:
 
 1. The implementation is in place.
 2. Relevant tests pass, including new regression coverage.
-3. `python3 -m compileall -q appssweep tests` succeeds.
+3. `python3 -m compileall -q appsweep tests` succeeds.
 4. User-facing text and README/docs remain accurate.
 5. `PROGRESS.md`, `TODO.md`, and `CHANGELOG.md` are updated as appropriate.
 6. The diff has been reviewed and only intended files are staged.

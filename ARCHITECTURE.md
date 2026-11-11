@@ -1,6 +1,6 @@
 # AppSweep Architecture
 
-Last updated: 2026-11-09
+Last updated: 2026-11-11
 
 ## Purpose
 
@@ -16,6 +16,17 @@ The design assumes file names, paths, command output, and package metadata are
 untrusted. Safety checks are layered so a bug in one layer does not authorize a
 destructive operation elsewhere.
 
+The threat model covers accidental selection, path traversal, symlink and
+parent-directory replacement by actors outside the current user's trust
+boundary, mount-boundary escapes, and stale snapshots. It explicitly excludes a
+hostile or concurrent process running with the same effective UID: such a
+process can already modify or delete every file the user can access, and an
+unprivileged application cannot create a security boundary against it.
+Permanent personal-file deletion is therefore disabled rather than claiming
+that a mode-0700 quarantine is such a boundary. Moving personal files to Trash
+is retained as a recoverable operation with a documented same-UID pathname
+race.
+
 ## High-level flow
 
 ```text
@@ -30,7 +41,7 @@ Read-only scan (StorageScanner)
     ├─ descriptor-relative directory traversal, no symlink following
     ├─ global hardlink accounting
     ├─ permission and skipped-path reporting
-    ├─ top-N personal-file heap
+    ├─ bounded top-N personal-file candidate map
     └─ progress + incremental cancellation
     ▼
 Discovery (discover_cleanup)
@@ -62,7 +73,7 @@ Optional export
     ▼
 Interactive selection
     ├─ personal file numbers
-    ├─ permanent-vs-Trash choice
+    ├─ Trash-only personal choice; permanent deletion disabled
     ├─ cleanup item numbers / groups / exclusions
     └─ combined plan + typed CLEAN
     ▼
@@ -81,31 +92,31 @@ Authorization + execution (CleanupEngine)
 
 | Module | Responsibility |
 | --- | --- |
-| `appssweep/__init__.py` | App name, tagline, version. |
-| `appssweep/__main__.py` | `python -m appssweep` entry point. |
-| `appssweep/cli.py` | Argument parsing, scan setup, mode selection, root refusal, workflow orchestration, exports, interactive cleanup. |
-| `appssweep/audit.py` | Private append-only cleanup audit log: path resolution, safe directory/file creation, JSON-lines plan/result records. |
-| `appssweep/models.py` | Shared dataclasses/enums: `RiskGroup`, `ActionKind`, `FileSnapshot`, `ScanConfig`, `ScanResult`, `CleanupItem`, `CleanupPlan`, `Authorization`, execution results, report models. |
-| `appssweep/filesystem.py` | Mount parsing, local/network/virtual classification, boundary checks, targeted measurement, filesystem capacity discovery. |
-| `appssweep/scanner.py` | Descriptor-relative read-only traversal, global hardlink accounting, mount pruning, progress, cancellation callbacks, permission tracking, top-N heap, personal-file filtering. |
-| `appssweep/filetypes.py` | Conservative extension-based file classification. |
-| `appssweep/large_files.py` | Quick-scan folder list, personal exclusion rules, application roots, ranking helpers, selection map. |
-| `appssweep/capabilities.py` | Read-only PATH detection for optional host tools, actionable limits, and explicit mock/unverified status. |
-| `appssweep/categories.py` | Runs cleanup discovery modules, records capability status, dedupes, sorts, and numbers items. |
-| `appssweep/analyzer.py` | Report assembly, group totals, overlap detection, warnings, notes, report-only merge. |
-| `appssweep/package_manager.py` | DNF/DNF5 and rpm-ostree detection, cache discovery, autoremove preview parsing, old-kernel selection and command previews. |
-| `appssweep/flatpak.py` | Flatpak command discovery, runtime listings, unused-runtime estimate, official cleanup command. |
-| `appssweep/cache_cleaner.py` | User/system/app cache discovery and scoped cleanup items. |
-| `appssweep/log_cleaner.py` | Journal, rotated logs, crash dumps, temporary files, and report-only system data. |
-| `appssweep/trash_manager.py` | Trash size/entry discovery and `gio trash --empty` item. |
-| `appssweep/safety.py` | Protected path policy, snapshot revalidation, descriptor-relative cache clearing and personal unlink, mount-ID boundary checks, authorization coverage. |
-| `appssweep/cleanup_engine.py` | Exact plan validation, allowlisted command validation, execution, Trash/permanent handling, free-space measurement. |
-| `appssweep/runner.py` | Subprocess wrapper using argument lists; `pkexec` only when requested; sanitizes and bounds output. |
-| `appssweep/selection.py` | Number/range/group/all/none/cancel/exclusion parser and exact resolution. |
-| `appssweep/reporting.py` | JSON/CSV rendering, formula-safe cells, atomic private writes. |
-| `appssweep/ui.py` | ANSI UI, optional Rich rendering, terminal escaping, prompts and confirmation summaries. |
-| `appssweep/util.py` | Size/time formatting, safe terminal text, path containment, command display, stopwatch. |
-| `bin/appssweep` | Source-checkout launcher that adds the project root to `sys.path`. |
+| `appsweep/__init__.py` | App name, tagline, version. |
+| `appsweep/__main__.py` | `python -m appsweep` entry point. |
+| `appsweep/cli.py` | Argument parsing, scan setup, mode selection, root refusal, workflow orchestration, exports, interactive cleanup. |
+| `appsweep/audit.py` | Private append-only cleanup audit log: path resolution, safe directory/file creation, JSON-lines plan/result records. |
+| `appsweep/models.py` | Shared dataclasses/enums: `RiskGroup`, `ActionKind`, `FileSnapshot`, `ScanConfig`, `ScanResult`, `CleanupItem`, `CleanupPlan`, `Authorization`, execution results, report models. |
+| `appsweep/filesystem.py` | Mount parsing, local/network/virtual classification, boundary checks, targeted measurement, filesystem capacity discovery. |
+| `appsweep/scanner.py` | Descriptor-relative read-only traversal, global hardlink accounting, mount pruning, progress, cancellation callbacks, permission tracking, bounded top-N candidate map, personal-file filtering. |
+| `appsweep/filetypes.py` | Conservative extension-based file classification. |
+| `appsweep/large_files.py` | Quick-scan folder list, personal exclusion rules, application roots, ranking helpers, selection map. |
+| `appsweep/capabilities.py` | Read-only PATH detection for optional host tools, actionable limits, and explicit mock/unverified status. |
+| `appsweep/categories.py` | Runs cleanup discovery modules, records capability status, dedupes, sorts, and numbers items. |
+| `appsweep/analyzer.py` | Report assembly, group totals, overlap detection, warnings, notes, report-only merge. |
+| `appsweep/package_manager.py` | DNF/DNF5 and rpm-ostree detection, cache discovery, autoremove preview parsing, old-kernel selection and command previews. |
+| `appsweep/flatpak.py` | Flatpak command discovery, runtime listings, unused-runtime estimate, official cleanup command. |
+| `appsweep/cache_cleaner.py` | User/system/app cache discovery and scoped cleanup items. |
+| `appsweep/log_cleaner.py` | Journal, rotated logs, crash dumps, temporary files, and report-only system data. |
+| `appsweep/trash_manager.py` | Trash size/entry discovery and `gio trash --empty` item. |
+| `appsweep/safety.py` | Protected path policy, snapshot revalidation, descriptor-relative cache clearing, legacy private-quarantine code retained out of reach, restoration primitives, mount-ID boundary checks, authorization coverage, fail-closed permanent-deletion refusal. |
+| `appsweep/cleanup_engine.py` | Exact plan validation, allowlisted command validation, execution, Trash-only personal handling, fail-closed permanent-plan refusal, free-space measurement. |
+| `appsweep/runner.py` | Subprocess wrapper using argument lists; `pkexec` only when requested; sanitizes and bounds output. |
+| `appsweep/selection.py` | Number/range/group/all/none/cancel/exclusion parser and exact resolution. |
+| `appsweep/reporting.py` | JSON/CSV rendering, formula-safe cells, atomic private writes. |
+| `appsweep/ui.py` | ANSI UI, optional Rich rendering, terminal escaping, prompts and confirmation summaries. |
+| `appsweep/util.py` | Size/time formatting, safe terminal text, path containment, command display, stopwatch. |
+| `bin/appsweep` | Source-checkout launcher that adds the project root to `sys.path`. |
 
 ## Data model essentials
 
@@ -113,12 +124,15 @@ Authorization + execution (CleanupEngine)
 
 - normalized path
 - logical size and allocated size
-- mtime, device, inode
+- mtime, ctime (nanoseconds), device, inode
 - extension, type label, kind, description
 - owner UID
 - risk group (always `CAREFUL` for personal files)
 
-The identity fields are re-checked before any move or unlink.
+The identity fields are re-checked before any move. Change time is checked on
+the user-visible entry during snapshot validation; it is not used after a
+Gio handoff because Gio owns the move. The ctime check rejects same-size
+in-place edits whose mtime was restored.
 
 `CleanupItem` contains:
 
@@ -145,7 +159,8 @@ The identity fields are re-checked before any move or unlink.
 
 - set of cleanup item keys
 - set of personal file paths
-- separate `permanent_personal` boolean
+- separate `permanent_personal` boolean retained for compatibility; the engine
+  refuses it before any action
 
 `authorization_covers()` rejects any plan that contains an item or path not
 explicitly authorized.
@@ -189,13 +204,18 @@ explicit stack rather than `os.walk`:
 - excluded and protected paths are pruned
 - every nested mount point is detected from the live mount table and pruned;
   an explicitly selected nested root is still scanned from its own entry
-- hardlinks are accounted once globally, across all roots and loose-file roots,
-  via `(st_dev, st_ino)`
+- hardlinks are accounted once globally for storage, across all roots and
+  loose-file roots, via `(st_dev, st_ino)`. Personal eligibility is still
+  evaluated for every pathname, including an alias whose storage was counted
+  under an earlier non-personal root. Multiple eligible aliases of one inode use
+  the largest snapshot, then the lexicographically smaller path, as the
+  deterministic Top 50 representative.
 - directories accumulate logical and allocated sizes for top-directory output
 - permission failures are captured, counted, and sampled
 - cancellation is checked periodically and through convenience callbacks; it
   preserves partial results
-- a bounded heap keeps only the largest N personal candidates
+- a bounded per-inode candidate map keeps only the largest N personal
+  representatives and updates an alias without evicting another inode
 - progress is throttled
 
 Personal candidates must be regular files owned by the current user, above the
@@ -216,7 +236,7 @@ and selection use the same order.
 - `EMPTY_TRASH`
 - `RPM_OSTREE_METADATA`
 - `TRASH_PERSONAL`
-- `PERMANENT_PERSONAL`
+- `PERMANENT_PERSONAL` (retained in the enum but disabled and not selectable)
 - `REPORT_ONLY`
 
 Category items may not use the personal-file actions. Validation happens twice:
@@ -256,18 +276,34 @@ configuration cannot be reached through a misconfigured cache root.
 
 ### Personal files
 
-- Default action: `gio trash -- <path>`.
+- Default and only exposed action: `gio trash -- <path>`.
 - If `gio` is unavailable, the operation fails; there is no permanent-delete
   fallback.
-- Permanent unlink requires the separate `DELETE PERMANENTLY` phrase and the
-  `permanent_personal` authorization bit.
+- Permanent personal-file deletion is disabled. The CLI offers no
+  `DELETE PERMANENTLY` prompt, `CleanupEngine` rejects a plan with
+  `permanent_personal=True` before authorization, validation, or filesystem
+  work, and the public `SafetyPolicy.remove_personal_file` method raises
+  `SafetyError` without moving or unlinking anything.
+- The reason is a genuine boundary failure, not a missing check: a process
+  running as the same UID can replace the quarantine entry between validation
+  and the final `unlink`. A normal mode-0700 directory owned by that UID is not
+  a separate security boundary, and another `stat` immediately before `unlink`
+  is not a race fix. The only safe outcomes available without a newly reviewed
+  privileged helper are refusal or a quarantine that never unlinks; AppSweep
+  chooses refusal.
+- The historical private-quarantine algorithm remains in `safety.py` as
+  `_remove_personal_file_quarantine_legacy` only for regression/history and
+  future redesign. It is private, is not called by application code, and must
+  not be exposed.
 - Before execution, the snapshot must match path, owner, group, device, inode,
-  size, and mtime.
-- Permanent unlink opens the approved personal root and the parent chain through
-  stable descriptors, verifies the parent path against the parent descriptor,
-  checks the selected file against the complete snapshot through that parent
-  descriptor, and calls `unlink(name, dir_fd=parent_fd)`. A parent or file
-  change in the final window is refused.
+  size, mtime, and ctime. The ctime check rejects a same-size in-place edit
+  whose mtime was restored.
+- Moving to Trash revalidates the snapshot immediately before invoking Gio, but
+  Gio resolves a pathname. A same-UID final-component swap can still redirect
+  the handoff to a different file. This is an accepted, recoverable limitation:
+  the wrong file can be moved to Trash but is not permanently deleted. It is
+  **not** claimed fixed by revalidation. Real Gio remains blocked for
+  host-validation purposes.
 - Parent symlinks, changed ownership, non-regular files, cache paths, Trash
   paths, and hidden paths are rejected.
 
@@ -279,28 +315,41 @@ configuration cannot be reached through a misconfigured cache root.
 - Output is bounded and sanitized before display.
 - A failed command is reported and later commands in that item are not run.
 
+### DNF preview metadata refresh
+
+The DNF autoremove preview runs with `--assumeno --cacheonly` by default. If
+`--refresh-metadata` is supplied and package discovery is enabled, AppSweep may
+retry the preview without `--cacheonly`, which can update local repository
+metadata during a report-only or dry-run invocation. This is an explicit side
+effect: AppSweep prints a warning before discovery, ignores the flag with an
+explanatory warning when package discovery is disabled, and changes the final
+report-only text to “No cleanup actions were performed; DNF repository metadata
+may have been refreshed.” A dry-run without the flag remains cache-only.
+
 ### Cleanup audit logging
 
-After the user types `CLEAN`, `appssweep/audit.py` appends a JSON-lines record
+After the user types `CLEAN`, `appsweep/audit.py` appends a JSON-lines record
 before execution and another record after success or refusal. The default path
 is:
 
 ```text
-$XDG_STATE_HOME/appssweep/cleanup-audit.log
+$XDG_STATE_HOME/appsweep/cleanup-audit.log
 ```
 
 If `XDG_STATE_HOME` is unset, it falls back to:
 
 ```text
-~/.local/state/appssweep/cleanup-audit.log
+~/.local/state/appsweep/cleanup-audit.log
 ```
 
-The `appssweep` directory is created with mode `0700`; the log is opened with
-`O_APPEND | O_CREAT | O_NOFOLLOW` and forced to `0600`. The logger refuses a
-symlink, non-regular file, foreign-owned directory, or group/world-writable
-directory. Records include the app version, UID, exact plan, authorization
-summary, execution results, and refusal error. Filesystem text is JSON-escaped,
-not interpreted as terminal output.
+The `appsweep` directory is opened by descriptor with
+`O_DIRECTORY | O_NOFOLLOW` and enforced as `0700`; an existing `0755` or `0711`
+directory is tightened before use. Group/world-writable and foreign-owned
+directories are refused. The log is opened relative to that descriptor with
+`O_APPEND | O_CREAT | O_NOFOLLOW` and forced to `0600`. The logger also refuses
+a symlink, non-regular file, or hard-linked log. Records include the app
+version, UID, exact plan, authorization summary, execution results, and refusal
+error. Filesystem text is JSON-escaped, not interpreted as terminal output.
 
 An audit-write failure is shown as a warning and does not roll back or hide an
 already completed cleanup. The log is append-only and currently has no built-in
@@ -366,11 +415,11 @@ Paths are treated as untrusted between the scan and the destructive operation.
 Cache clearing anchors an opened, verified target descriptor, opens child
 directories with `O_DIRECTORY | O_NOFOLLOW`, verifies `fstat` identity, performs
 stat/unlink/rmdir with `dir_fd`, and rechecks the path-to-descriptor identity
-before the destructive loop. Personal permanent unlink similarly anchors the
-approved root, walks the parent chain by descriptor, and validates the full file
-snapshot through the final parent descriptor. Mount IDs come from
-`/proc/self/fdinfo/<fd>` so a renamed path cannot hide a bind mount. These
-operations fail closed when the platform lacks the required primitives.
+before the destructive loop. Personal files are revalidated and handed to Gio;
+permanent deletion fails closed before any filesystem operation. Mount IDs come
+from `/proc/self/fdinfo/<fd>` so a renamed path or bind mount cannot redirect
+cache operations. These operations fail closed when the platform lacks the
+required primitives.
 
 ### Bounded selection parsing
 
@@ -400,7 +449,7 @@ deployments, runtime removal, journal vacuuming, or Trash semantics.
 
 ### Graceful capability detection
 
-`appssweep/capabilities.py` checks PATH visibility for optional host commands
+`appsweep/capabilities.py` checks PATH visibility for optional host commands
 without executing them. Missing tools are reported as limits, not application
 errors: only the dependent cleanup categories are disabled. The capability
 report is shown before cleanup selection, included in JSON, and records
@@ -453,17 +502,26 @@ Tests use only `unittest`, temporary directories, and fakes:
   warnings; `tests/test_host_integration_mocks.py` is explicitly labelled as
   mocked coverage for rpm-ostree, RPM, and journalctl paths.
 - Scanner tests create real directory trees in temporary roots, including
-  directory-replacement races, cross-root hard links, same-device mountinfo
-  fixtures, and cancellation during a wide directory.
+  directory-replacement races, cross-root hard links in both root orders,
+  deterministic personal-alias representatives, a same-size alias update that
+  must not evict another personal file, same-device mountinfo fixtures, and
+  cancellation during a wide directory.
 - Safety tests exercise real `lstat`/unlink/cache-removal behavior inside
   temporary directories. Deterministic race tests replace cache targets, nested
-  cache directories, personal parents, and files at controlled check/use
-  windows. Real bind mounts are not created; mount-boundary policy branches use
-  simulated mount IDs and are labelled as such.
+  cache directories, personal parents, and selected files at controlled
+  check/use windows. Legacy quarantine regressions cover visible-path,
+  parent-directory, symlink, directory, and final-unlink replacement; they
+  exercise the private legacy primitive and are labelled as such. Public
+  permanent deletion is separately tested to refuse before any rename or
+  unlink, including the audit's same-UID substitution scenario. Same-size
+  content edits with restored mtimes are rejected. Real bind mounts are not
+  created; mount-boundary policy branches use simulated mount IDs and are
+  labelled as such.
 - CLI tests run `main()` with redirected streams and temporary HOME/XDG
   variables.
 - Audit tests use temporary state directories and verify privacy, JSON-lines
-  records, symlink refusal, and unsafe-directory refusal.
+  records, symlink and hard-link refusal, unsafe-directory refusal, and
+  tightening of existing `0755`/`0711` directories to `0700`.
 - Trash tests verify size, count, example contents, and the no-`gio`,
   report-only path.
 - UI tests verify exact top-50 numbering and optional Rich rendering.

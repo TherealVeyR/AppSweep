@@ -1,12 +1,14 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "appssweep"
+name = "appsweep"
 version = "1.0.0"
 description = "A safety-first Fedora storage analyzer and cleanup assistant."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 keywords = ["fedora", "storage", "disk-space", "cleanup", "cli"]
 classifiers = [
@@ -14,6 +16,12 @@ classifiers = [
   "Intended Audience :: End Users/Desktop",
   "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: System :: Filesystems",
   "Topic :: System :: Systems Administration",
 ]
@@ -23,7 +31,7 @@ dependencies = []
 rich = ["rich>=13.0"]
 
 [project.scripts]
-appssweep = "appssweep.cli:main"
+appsweep = "appsweep.cli:main"
 
 [tool.setuptools]
-packages = ["appssweep"]
+packages = ["appsweep"]

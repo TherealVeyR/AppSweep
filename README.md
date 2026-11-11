@@ -11,6 +11,12 @@ Scanning is read-only. AppSweep does not delete, move, or modify a file during
 a scan. Cleanup only happens after you select exact items and type `CLEAN` in
 the confirmation prompt.
 
+Personal files are **Trash-only** in this release. Permanent deletion is
+disabled because AppSweep cannot establish a real security boundary between its
+deletion quarantine and another process running as the same user. Moving files
+to Trash remains recoverable, but it inherits a documented same-UID pathname
+race from Gio; see [Security and threat model](#security-and-threat-model).
+
 ## What it does
 
 - Measures disk use from the real filesystem, not a stale cache.
@@ -21,7 +27,9 @@ the confirmation prompt.
   shares, and external mounts during a full scan. `/tmp` and `/var/tmp` are
   still examined for report-only temporary-file findings.
 - Shows the **50 largest personal files** with exact path, file name, exact
-  byte size, type, modified date, and a conservative description.
+  byte size, type, modified date, and a conservative description. Hard-link
+  aliases count once toward storage and use one deterministic pathname in the
+  ranking.
 - Groups cleanup opportunities into **SAFE**, **CAREFUL**, and **REBUILD**.
 - Reports permission problems and deliberately skipped paths instead of
   pretending the scan was complete.
@@ -36,8 +44,10 @@ the confirmation prompt.
 - Shows a `HOST INTEGRATIONS` section so missing optional Fedora tools are
   visible before you choose a cleanup category.
 - Never runs a shell. Cleanup commands are allowlisted and validated.
-- Performs cache cleanup and permanent personal unlink through verified
-  directory descriptors, and refuses to cross filesystem or mount boundaries.
+- Performs cache cleanup through verified directory descriptors and mount-ID
+  checks. Personal files are moved to Trash only in this release; permanent
+  personal-file deletion is disabled because AppSweep cannot isolate its
+  quarantine from another process running as the same user.
 - Refuses to run the whole program as root. Individual system commands request
   administrator approval through `pkexec` only when they are needed.
 
@@ -52,6 +62,9 @@ the confirmation prompt.
 - `CHANGELOG.md` — notable changes.
 - `CONTRIBUTING.md` — development, testing, and Git workflow.
 - `RELEASE_CHECKLIST.md` — release gates and host-validation evidence.
+- `SECURITY.md` — threat model, same-UID boundary, and vulnerability reporting.
+- `PUBLISHING.md` — detailed pre-publication and Git/GitHub release guide.
+- `LICENSE` — MIT license terms.
 - `temp_task.md` — current work-session scratch state.
 
 Start with `AGENTS.md` before changing code. Update `PROGRESS.md`, `TODO.md`, and
@@ -84,8 +97,8 @@ failure.
 ### Run from this source checkout
 
 ```bash
-cd appssweep
-./bin/appssweep --mode quick
+cd appsweep
+./bin/appsweep --mode quick
 ```
 
 The launcher works without installing anything.
@@ -93,11 +106,11 @@ The launcher works without installing anything.
 ### Install into a virtual environment
 
 ```bash
-cd appssweep
+cd appsweep
 python3 -m venv .venv
 source .venv/bin/activate
 pip install .
-appssweep --mode quick
+appsweep --mode quick
 ```
 
 For the optional Rich interface:
@@ -117,14 +130,14 @@ pipx install .
 ```bash
 # Default: common personal folders (Desktop, Documents, Downloads, Videos,
 # Pictures, Music, Public, Templates)
-appssweep --mode quick
+appsweep --mode quick
 
 # Full local installation: /home plus system data, keeping separate local
 # filesystems and skipping virtual, network, and external mounts
-appssweep --mode full
+appsweep --mode full
 
 # Custom paths only; repeat --path for more than one
-appssweep --mode custom --path ~/Downloads --path /var/tmp
+appsweep --mode custom --path ~/Downloads --path /var/tmp
 ```
 
 A full scan can take a while. Press `Ctrl+C` to stop; the partial report is
@@ -140,7 +153,8 @@ Useful options:
 --report-only              # never offer cleanup
 --dry-run                  # alias for --report-only; never offers cleanup
 --interactive              # allow prompts even when stdin is not a TTY
---refresh-metadata         # allow a DNF preview to refresh repository metadata
+--refresh-metadata         # allow DNF to update repository metadata during package discovery;
+                           # may write to the DNF cache even in report-only runs
 --json report.json
 --csv report.csv
 --no-color
@@ -149,6 +163,15 @@ Useful options:
 
 Non-interactive runs are report-only unless `--interactive` is supplied. This
 keeps pipes and scripts safe.
+
+`--refresh-metadata` is an explicit opt-in to a side effect. Without it, the
+DNF autoremove preview uses `--cacheonly` and does not attempt a network
+metadata refresh. With it, AppSweep prints a warning and the final report says
+“No cleanup actions were performed” rather than “No changes were made,” because
+DNF metadata may have been refreshed. The flag is ignored with an explanatory
+warning when package discovery is disabled. `--dry-run` remains a report-only
+run, but if you combine it with `--refresh-metadata`, the metadata warning still
+applies.
 
 ## The three cleanup groups
 
@@ -201,29 +224,37 @@ without guessing.
 
 ## What happens to personal files
 
-Selected personal files are moved to the desktop Trash by default with `gio`.
-This is deliberate: a mistaken selection can be restored.
+Selected personal files are moved to the desktop Trash with `gio`. This is
+deliberate: a mistaken selection can be restored.
 
 Moving a file to Trash **does not free disk space** until Trash is emptied.
 The report says this in the table and at the confirmation step.
 
-Permanent deletion is a separate choice. It requires:
+**Permanent personal-file deletion is disabled in this release.** AppSweep
+cannot create a genuine security boundary between a mode-0700 quarantine owned
+by your user and another process running as the same user. A same-UID process
+can replace the quarantined directory entry after AppSweep validates it and
+before the final unlink; adding another `stat` immediately before `unlink` does
+not fix that race. Rather than delete the wrong file or report a false success,
+the public deletion operation fails closed before it moves or unlinks anything.
+No `DELETE PERMANENTLY` prompt is offered, and there is no permanent-deletion
+fallback from a failed Trash operation.
 
-1. answering yes to “Permanently delete these files instead of moving them to
-   Trash?”, and
-2. typing `DELETE PERMANENTLY`.
+Before any personal file is changed, AppSweep re-checks its path, owner, device,
+inode, size, modification time, and change time against the scan snapshot. If
+any selected file fails that initial check, the whole plan stops before changes
+are made. Moving to Trash then revalidates the file immediately before the
+`gio trash -- <path>` handoff. Gio resolves the pathname itself, so a hostile or
+concurrent same-UID process can still swap the final path component during that
+handoff. This is an accepted, recoverable limitation: the wrong file may be
+moved to Trash, but it is not permanently deleted and can be restored. It is
+**not** a race fix, and real Gio behavior remains unverified until the
+disposable-desktop check in `INTEGRATIONS.md` is completed.
 
-If the second phrase is not typed exactly, the files are moved to Trash
-instead. AppSweep never silently falls back to permanent deletion.
-
-Before any personal file is changed, AppSweep re-checks its path, owner,
-device, inode, size, and modification time against the scan snapshot. If any
-selected file fails that initial check, the whole plan stops before changes are
-made. Permanent deletion opens the approved root and every parent below it
-through stable directory descriptors, rechecks the parent and file through
-those descriptors, and unlinks relative to the same parent descriptor. A parent
-or file that changes during that final window aborts before removal; a file
-that changes later in the plan is skipped and reported.
+The historical private-quarantine algorithm remains in the source only as a
+private, regression-tested legacy primitive for future redesign. It is not
+reachable from the CLI, cleanup engine, or public safety API. See
+[`SECURITY.md`](SECURITY.md) for the full threat model.
 
 ## Confirmation and execution
 
@@ -242,9 +273,9 @@ make the two differ.
 ## Exporting a report
 
 ```bash
-appssweep --mode quick --json report.json
-appssweep --mode full --csv report.csv
-appssweep --mode custom --path ~/Downloads --json report.json --csv report.csv
+appsweep --mode quick --json report.json
+appsweep --mode full --csv report.csv
+appsweep --mode custom --path ~/Downloads --json report.json --csv report.csv
 ```
 
 - JSON contains the complete scan summary, cleanup items, personal files,
@@ -262,19 +293,22 @@ appssweep --mode custom --path ~/Downloads --json report.json --csv report.csv
 Confirmed cleanup attempts are recorded in a private, append-only audit log:
 
 ```text
-$XDG_STATE_HOME/appssweep/cleanup-audit.log
+$XDG_STATE_HOME/appsweep/cleanup-audit.log
 ```
 
 If `XDG_STATE_HOME` is unset, AppSweep uses:
 
 ```text
-~/.local/state/appssweep/cleanup-audit.log
+~/.local/state/appsweep/cleanup-audit.log
 ```
 
-The directory is created with mode `0700` and the log with mode `0600`. Each
-JSON line records the plan, authorization summary, result, and refusal errors.
-AppSweep refuses to append through a symlink or into an unsafe shared state
-directory.
+The state path uses the `appsweep` spelling. Existing state files under earlier
+paths are not migrated automatically. The directory is created with mode `0700`
+and the log with mode `0600`. An existing `0755` or `0711` audit directory is
+tightened to `0700` before the record is written; a group/world-writable
+directory, a foreign-owned directory, a symlink, or a hard-linked log file is
+refused. Each JSON line records the plan, authorization summary, result, and
+refusal errors.
 
 If the audit log cannot be written, AppSweep shows a warning and still reports
 the cleanup result. The log is not rotated automatically; remove or archive it
@@ -298,20 +332,60 @@ yourself if the history becomes large. Scan reports are not written to this log.
 - **Symlinks are never followed.** Directories are opened with
   `O_DIRECTORY | O_NOFOLLOW`; symlinks are counted and reported as entries.
 - **Snapshot revalidation.** Numbered selections cannot silently point at a
-  different file after the scan. Personal permanent deletion checks the full
-  snapshot again through the opened parent descriptor immediately before
-  `unlink`.
-- **Descriptor-relative deletion.** Cache and personal deletion use stable
-  directory descriptors, `dir_fd` operations, and identity rechecks instead of
-  re-resolving an untrusted path at the moment of removal.
+  different file after the scan. Personal files are checked by path, owner,
+  device, inode, size, mtime, and ctime before cleanup; a same-size in-place
+  edit with a restored mtime is rejected by the change-time check.
+- **Descriptor-relative cache cleanup.** Cache removal uses stable directory
+  descriptors and `dir_fd` operations instead of re-resolving an untrusted path
+  at the moment of removal. It refuses different filesystems and mount-ID
+  boundaries, including same-device bind mounts.
+- **Trash-only personal cleanup.** Personal files are revalidated and handed to
+  Gio for recoverable Trash movement. Permanent deletion fails closed because a
+  same-UID quarantine is not a security boundary. Missing Gio never triggers a
+  permanent-delete fallback.
 - **Cleanup audit logging.** Confirmed plans and results are written to a
-  private append-only JSON-lines log.
+  private append-only JSON-lines log under a `0700` directory with a `0600`
+  file. Existing `0755`/`0711` directories are tightened; writable shared
+  directories are refused.
 - **Dry-run by default.** `--report-only` and `--dry-run` never offer cleanup.
 - **Terminal escaping.** Control characters in file names and paths are
   escaped before display.
 - **CSV formula protection.** Untrusted text is neutralized for spreadsheets.
 - **Cancelled scans disable cleanup.** A partial report remains available for
   inspection and export.
+
+## Security and threat model
+
+AppSweep is designed to prevent accidental cleanup, path confusion, and
+replacement by actors outside the current user's trust boundary. It does **not**
+claim protection against a hostile or concurrent process running with the same
+effective UID. Such a process can already read, modify, move, or delete every
+file the user can access, and an unprivileged application cannot create a
+security boundary against it.
+
+Specific consequences:
+
+- **Permanent personal-file deletion is disabled.** A mode-0700 quarantine
+  owned by the same user is not a boundary. AppSweep refuses the operation
+  before moving or unlinking anything rather than claim inode-identity
+  protection it cannot provide.
+- **Trash movement is recoverable but not race-free.** Gio accepts a pathname.
+  A same-UID final-component swap can redirect the handoff to a different file.
+  The affected file is moved to Trash, not permanently deleted, and can be
+  restored. AppSweep revalidates immediately before the handoff and never falls
+  back to permanent deletion, but it does not claim to close this race.
+- **Cross-UID, symlink, parent-directory, and mount-boundary attacks** are
+  handled with `lstat`, `O_NOFOLLOW`, descriptor-relative traversal, snapshot
+  revalidation, and mount-ID checks where the platform provides them. If the
+  required primitives are unavailable, the operation fails closed.
+- **Real-host verification is incomplete.** DNF, DNF5, RPM, rpm-ostree,
+  Flatpak, pkexec, Gio, real mounts, and Python 3.10 have not been validated on
+  a disposable Fedora host in this environment. `real_host_verified` remains
+  `false`.
+
+Read [`SECURITY.md`](SECURITY.md) for reporting instructions and the complete
+boundary statement. Read [`INTEGRATIONS.md`](INTEGRATIONS.md) for the manual
+Fedora validation checklist.
 
 ## Limitations
 
@@ -329,6 +403,15 @@ yourself if the history becomes large. Scan reports are not written to this log.
 - Emptying Trash frees space immediately, but moving new files to Trash
   afterwards does not. The confirmation summary explains the order.
 - The cleanup audit log is append-only and has no automatic rotation yet.
+- Permanent personal-file deletion is disabled. The historical
+  `.appsweep-quarantine-*` algorithm is retained only as a private legacy
+  primitive and is not reachable from the product. Do not manually create or
+  rely on quarantine directories for deletion.
+- Moving a personal file to Trash still uses Gio's pathname interface. A
+  same-UID final-component swap during the `gio trash` handoff is an accepted,
+  recoverable limitation: the wrong file can be moved to Trash, but not
+  permanently deleted. Real-Gio behavior remains **BLOCKED** pending a
+  disposable Fedora desktop test.
 - Missing optional host tools are reported as capability limits, not as
   application failures. Dependent cleanup categories are skipped.
 - Directory cache cleanup refuses to run if descriptor-relative operations or
@@ -374,7 +457,7 @@ polkit/administrator configuration on the host.
 ### The cleanup audit log is not writable
 
 AppSweep warns and preserves the cleanup result. Check that the state directory
-and log are owned by you and that the `appssweep` directory is not
+and log are owned by you and that the `appsweep` directory is not
 group/world-writable or a symlink. The default path is shown in the warning.
 
 ### A full scan takes longer than expected
@@ -404,35 +487,45 @@ The test suite uses only temporary directories and mocks. It never performs
 destructive host cleanup.
 
 ```bash
-cd appssweep
-python3 -m compileall -q appssweep tests
+cd appsweep
+python3 -m compileall -q appsweep tests
 python3 -m unittest discover -v
 ```
 
-Coverage includes descriptor-relative traversal, directory-swap races,
-symlink handling, permission errors, mount boundaries, mount-ID checks,
-global hardlink accounting, package and Flatpak detection, capability
-detection, bounded selection parsing, authorization, cancellation callbacks,
-path safety, storage calculations, overlap detection, CSV formula
-neutralization, reporting, cleanup audit-log privacy/refusal, CLI flows, and the
-exact top-50 numbering shown during selection. The suite currently has 166
-tests: 165 pass and 1 Rich-only test is skipped without Rich; all 166 pass with
-Rich. Missing host tools and real mount fixtures are exercised with clearly
-labelled mocks and simulations; see `INTEGRATIONS.md` for what is and is not
-verified.
+Coverage includes descriptor-relative traversal, directory-swap and
+visible-path replacement races, legacy quarantine regressions, the new
+fail-closed permanent-deletion refusal, Gio handoff revalidation and
+no-permanent-fallback behavior, symlink handling, permission errors, mount
+boundaries, mount-ID checks, global hardlink accounting with personal
+eligibility, audit-directory mode enforcement, ctime checks, package and Flatpak
+detection, capability detection, bounded selection parsing, authorization,
+cancellation callbacks, path safety, storage calculations, overlap detection,
+CSV formula neutralization, reporting, cleanup audit-log privacy/refusal, CLI
+flows, and the exact top-50 numbering shown during selection. The suite
+currently has 185 tests: 184 pass and 1 Rich-only test is skipped without Rich.
+The current Rich run and Ruff check are blocked because the temporary Rich
+venv/tool is unavailable; the previous Rich-enabled suite passed. `pytest` is
+not installed and was not run. Missing host tools and real mount fixtures are
+exercised with clearly labelled mocks and simulations; see `INTEGRATIONS.md`
+for what is and is not verified.
 
 Run the optional Rich suite with:
 
 ```bash
-/tmp/opencode/appssweep-rich-venv/bin/python -m unittest discover
+/tmp/opencode/appsweep-rich-venv/bin/python -m unittest discover
 ```
+
+The repository includes `.github/workflows/tests.yml`, which runs compileall
+and the standard-library test suite on Python 3.10 through 3.14. It does not
+run real Fedora tools, Gio, pkexec, Ruff, or type checkers. Those remain
+manual/host-validation gates.
 
 ## Project layout
 
 ```text
-appssweep/
-├── bin/appssweep              source-checkout launcher
-├── appssweep/
+appsweep/
+├── bin/appsweep              source-checkout launcher
+├── appsweep/
 │   ├── cli.py                 command-line workflow
 │   ├── scanner.py             filesystem traversal and ranking
 │   ├── analyzer.py            report totals and overlap checks
@@ -446,6 +539,8 @@ appssweep/
 │   └── ...                    discovery modules for packages, Flatpak,
 │                              caches, logs, Trash, and system data
 ├── tests/                     unittest suite
+├── .github/workflows/tests.yml CI compile and unittest matrix
+├── .gitattributes             repository text/binary normalization
 ├── pyproject.toml
 ├── requirements.txt
 ├── AGENTS.md                  development rules and safety invariants
@@ -456,6 +551,9 @@ appssweep/
 ├── CHANGELOG.md               notable changes
 ├── CONTRIBUTING.md            development, testing, and Git workflow
 ├── RELEASE_CHECKLIST.md       release gates and host-validation evidence
+├── SECURITY.md                 threat model and private reporting guidance
+├── PUBLISHING.md               pre-publication and Git/GitHub guide
+├── LICENSE                     MIT license text
 └── README.md
 ```
 
@@ -464,13 +562,22 @@ appssweep/
 If installed with `pipx`:
 
 ```bash
-pipx uninstall appssweep
+pipx uninstall appsweep
 ```
 
 If installed in a virtual environment, remove the environment and the
-`appssweep` command. AppSweep keeps no report database, but it does retain the
+`appsweep` command. AppSweep keeps no report database, but it does retain the
 private cleanup audit history at
-`$XDG_STATE_HOME/appssweep/cleanup-audit.log` (or
-`~/.local/state/appssweep/cleanup-audit.log`). Remove that file yourself if you
+`$XDG_STATE_HOME/appsweep/cleanup-audit.log` (or
+`~/.local/state/appsweep/cleanup-audit.log`). Remove that file yourself if you
 do not want the history to remain. Reports you exported are separate files and
 are not removed by uninstalling.
+
+## License
+
+AppSweep is licensed under the MIT License. See [`LICENSE`](LICENSE).
+
+## Contributing and security
+
+Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before sending a change. Do not report
+security vulnerabilities in a public issue; follow [`SECURITY.md`](SECURITY.md).

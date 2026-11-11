@@ -62,3 +62,8 @@ tmp/
 
 # Local project archive
 /Archive.zip
+
+# Historical validation evidence retained locally, not published
+INDEPENDENT_VALIDATION_REPORT.md
+temp_task.md
+Archive.zip

@@ -1,0 +1,12 @@
+# Normalize repository text to LF so Fedora/Linux and CI agree.
+* text=auto eol=lf
+
+# Preserve binary fixtures and archives exactly.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.whl binary

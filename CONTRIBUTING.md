@@ -4,25 +4,31 @@ AppSweep is a safety-first storage analyzer and cleanup assistant for Fedora.
 It handles real personal files and system cleanup, so a change that makes the
 application more convenient at the expense of safety is not acceptable.
 
-Read `AGENTS.md`, `PROGRESS.md`, `TODO.md`, `ARCHITECTURE.md`, and
-`INTEGRATIONS.md` before making substantial changes.
+Read `AGENTS.md`, `PROGRESS.md`, `TODO.md`, `ARCHITECTURE.md`,
+`INTEGRATIONS.md`, and `SECURITY.md` before making substantial changes.
+Do not report security vulnerabilities in a public issue; follow the private
+reporting guidance in `SECURITY.md`.
 
 ## Safety rules
 
 - Scanning and discovery are read-only.
 - Cleanup must remain report-only by default.
 - A destructive plan only runs after the user types `CLEAN`.
-- Personal files default to Trash. Permanent deletion needs the separate
-  `DELETE PERMANENTLY` phrase and the `permanent_personal` authorization bit.
+- Personal files are Trash-only in this release. Permanent personal-file
+  deletion is disabled because a mode-0700 quarantine is not a security
+  boundary against another process running as the same UID. Do not expose the
+  private legacy quarantine primitive or add a permanent-deletion fallback.
 - Never use `shell=True`, `os.system`, `eval`, or shell-concatenated commands.
 - Never run the whole application as root. Use `pkexec` only for a specific
   allowlisted command that needs administrator approval.
 - Never follow symlinks during scanning or cleanup. Use
   `O_DIRECTORY | O_NOFOLLOW`, `dir_fd` operations, and descriptor identity
   checks for destructive filesystem operations.
-- Revalidate every personal-file snapshot immediately before acting. Permanent
-  unlink must validate the parent chain and complete snapshot through the parent
-  descriptor used for `unlink(..., dir_fd=...)`.
+- Revalidate every personal-file snapshot before acting. A Trash move is a
+  recoverable pathname handoff through Gio and retains a documented same-UID
+  final-component race. Do not claim a last-moment `stat` fixes that race, and
+  do not claim universal inode-identity protection for permanent deletion. The
+  public permanent-deletion API must fail closed before any rename or unlink.
 - Do not broaden cache cleanup into home configuration, SSH/GPG data, Trash
   internals, or system trees. Cache traversal must reject different devices and
   mount IDs, including same-device bind mounts, and fail closed when boundary
@@ -38,11 +44,11 @@ If you are uncertain whether a cleanup action is safe, leave it report-only.
 ## Development setup
 
 ```bash
-cd appssweep
+cd appsweep
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[rich]"       # optional Rich interface
-./bin/appssweep --mode quick --report-only --no-color
+./bin/appsweep --mode quick --report-only --no-color
 ```
 
 The runtime has no required third-party dependencies. Rich is optional.
@@ -52,19 +58,20 @@ The runtime has no required third-party dependencies. Rich is optional.
 Run from the project root before committing:
 
 ```bash
-python3 -m compileall -q appssweep tests
+python3 -m compileall -q appsweep tests
 python3 -m unittest discover -v
 ```
 
-Current result: 166 tests total; 165 pass and 1 Rich-only test skips without
-Rich; all 166 pass with Rich. Run race tests as an unprivileged user; the
-permission-dependent cases skip under root.
+Current result: 185 tests total; 184 pass and 1 Rich-only test skips without
+Rich. The previous 175-test Rich-enabled run passed; the current 185-test Rich
+run is blocked because the temporary venv is unavailable. Run race tests as an
+unprivileged user; the permission-dependent cases skip under root.
 
 Optional lint and Rich checks:
 
 ```bash
-ruff check appssweep tests
-/tmp/appssweep-rich-venv/bin/python -m unittest discover
+ruff check appsweep tests
+/tmp/appsweep-rich-venv/bin/python -m unittest discover
 ```
 
 Host commands are mocked when the development sandbox lacks them. Do not
@@ -102,7 +109,7 @@ Do not add arbitrary paths or commands from user input.
 
 ## Git workflow
 
-The Git repository root is the `appssweep/` project directory. Do not initialize
+The Git repository root is the `appsweep/` project directory. Do not initialize
 a nested repository in the parent workspace or in `../taskvault`.
 
 Use conventional commits at meaningful, verified milestones:
@@ -139,6 +146,8 @@ Update the appropriate files when a milestone changes behavior:
   real-Fedora validation results.
 - `CHANGELOG.md` for notable changes.
 - `RELEASE_CHECKLIST.md` before declaring a release candidate complete.
+- `SECURITY.md` for threat-model or vulnerability-reporting changes.
+- `PUBLISHING.md` for the exact pre-publication, Git, wheel, and GitHub steps.
 - `temp_task.md` for the active session's current task and next command.
 
 Do not claim functionality that has only been mocked or planned.

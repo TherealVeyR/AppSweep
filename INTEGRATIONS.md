@@ -14,7 +14,7 @@ validation. Do not change a row to “verified” based only on a mock.
 
 ## Current environment status
 
-Recorded on 2026-11-09 in the development sandbox:
+Recorded on 2026-11-11 in the development sandbox:
 
 | Tool | Present | Evidence / status |
 | --- | --- | --- |
@@ -27,17 +27,23 @@ Recorded on 2026-11-09 in the development sandbox:
 | `pkexec` | No | Not available; mocked paths only. |
 | `gio` | Yes, 2.88.3 | Binary present, but no real host Trash operation was performed. |
 
-### 2026-11-09 validation-remediation note
+### 2026-11-11 final remediation note
 
-No host-tool status changed during the independent-validation remediation. The
-automated suite grew to 166 tests and now includes descriptor-relative
-cache/personal deletion, directory-swap races, scanner reopen checks, global
-hardlink accounting, bounded selection ranges, and mount-boundary policy
-fixtures. No real `dnf`, `dnf5`, `rpm`, `rpm-ostree`, `flatpak`, `journalctl`,
-`pkexec`, or `gio` operation was performed. A real secondary filesystem or
-same-device bind mount was not created; scanner mount policy uses mountinfo
-fixtures and cache mount checks use simulated mount IDs in unit tests. Those
-results are not real-host or real-mount evidence.
+No host-tool status changed during the follow-up validation remediation. The
+automated suite is now 185 tests (184 pass plus 1 Rich-only skip without Rich).
+A Rich-enabled run passed an earlier 175-test suite; the current Rich run is
+blocked because the temporary venv is unavailable. It includes
+descriptor-relative cache traversal, legacy quarantine regressions,
+fail-closed public permanent-deletion refusal, Gio handoff revalidation,
+scanner reopen checks, global hardlink accounting with personal-alias
+eligibility, bounded selection ranges, audit-directory mode enforcement, and
+mount-boundary policy fixtures. No real `dnf`, `dnf5`, `rpm`, `rpm-ostree`,
+`flatpak`, `journalctl`, `pkexec`, or `gio` operation was performed. In
+particular, the Gio Trash pathname race remains accepted as a recoverable
+same-UID limitation; it was not reproduced with real Gio. A real secondary
+filesystem or same-device bind mount was not created; scanner mount policy uses
+mountinfo fixtures and cache mount checks use simulated mount IDs in unit
+tests. Those results are not real-host or real-mount evidence.
 
 Consequences:
 
@@ -53,14 +59,14 @@ Consequences:
 
 | Integration | Implemented behavior | Primary code | Automated coverage | Real Fedora host |
 | --- | --- | --- | --- | --- |
-| DNF / DNF5 | Detects `dnf`/`dnf5`; measures DNF caches; offers `dnf clean all`; previews autoremove with `--assumeno --cacheonly` by default; optional metadata refresh only with `--refresh-metadata`; removes old kernel packages through DNF with the running kernel excluded. | `appssweep/package_manager.py` | Mocked detection, preview parsing, cacheonly behavior, command shapes, old-kernel selection, and cache/autoremove/old-kernel discovery. | **Not executed.** |
-| rpm-ostree | Detects an rpm-ostree system by `/run/ostree-booted` or the binary; offers metadata cache cleanup only. Deployments, rollbacks, and package layering are not modified. | `appssweep/package_manager.py` | Mocked metadata discovery and allowlist rejection of non-metadata commands. | **Not executed.** |
-| RPM | Reads `rpm -qa` metadata to identify installed kernel packages and estimate old-kernel removal. It never removes files directly. | `appssweep/package_manager.py` | Mocked old-kernel discovery verifies removal candidates and running-kernel exclusion. | **Not executed.** |
-| Flatpak | Detects Flatpak; lists applications and runtimes per user/system installation; estimates unused runtimes; offers only `flatpak uninstall --unused --assumeyes`. Applications and app data are not removed. | `appssweep/flatpak.py` | Mocked runtime parsing, availability fallback, unused-runtime discovery, and command-shape validation. | **Not executed.** |
-| journalctl | Measures journal usage with `journalctl --disk-usage`; accepts short and IEC size units; offers `journalctl --vacuum-size=256M`; falls back to read-only directory measurement if usage cannot be read. | `appssweep/log_cleaner.py` | Mocked usage parsing, vacuum discovery, and no-`journalctl` report-only fallback. | **Not executed.** |
-| pkexec | Wraps only individual allowlisted system commands with `pkexec`; reports a missing helper without launching the command; never runs the whole application as root. | `appssweep/runner.py`, `appssweep/cleanup_engine.py` | Mocked command wrapping, missing-`pkexec` failure, and command allowlist tests. | **Not executed.** |
-| gio | Finds the desktop Trash; moves personal files with `gio trash --`; empties only with `gio trash --empty`; has no direct-delete fallback. | `appssweep/trash_manager.py`, `appssweep/cleanup_engine.py` | Mocked Trash move, Trash empty, missing-`gio` report-only path, and Trash preview tests. | **Binary present; real Trash behavior unverified.** |
-| Capability detection | Checks PATH visibility without executing host tools; reports available/missing tools, actionable limits, and the mock/unverified status. | `appssweep/capabilities.py` | `tests/test_capabilities.py` verifies availability, warnings, empty reports, and no command execution. | **Not applicable; detection itself is local and read-only.** |
+| DNF / DNF5 | Detects `dnf`/`dnf5`; measures DNF caches; offers `dnf clean all`; previews autoremove with `--assumeno --cacheonly` by default; optional metadata refresh only with `--refresh-metadata`; warns when package discovery is active, ignores the flag with an explanation when it is not, and changes report-only wording when metadata may have been refreshed. Removes old kernel packages through DNF with the running kernel excluded. | `appsweep/package_manager.py`, `appsweep/cli.py` | Mocked detection, preview parsing, cacheonly behavior, explicit refresh retry, no-refresh refusal, command shapes, old-kernel selection, and cache/autoremove/old-kernel discovery. | **Not executed.** |
+| rpm-ostree | Detects an rpm-ostree system by `/run/ostree-booted` or the binary; offers metadata cache cleanup only. Deployments, rollbacks, and package layering are not modified. | `appsweep/package_manager.py` | Mocked metadata discovery and allowlist rejection of non-metadata commands. | **Not executed.** |
+| RPM | Reads `rpm -qa` metadata to identify installed kernel packages and estimate old-kernel removal. It never removes files directly. | `appsweep/package_manager.py` | Mocked old-kernel discovery verifies removal candidates and running-kernel exclusion. | **Not executed.** |
+| Flatpak | Detects Flatpak; lists applications and runtimes per user/system installation; estimates unused runtimes; offers only `flatpak uninstall --unused --assumeyes`. Applications and app data are not removed. | `appsweep/flatpak.py` | Mocked runtime parsing, availability fallback, unused-runtime discovery, and command-shape validation. | **Not executed.** |
+| journalctl | Measures journal usage with `journalctl --disk-usage`; accepts short and IEC size units; offers `journalctl --vacuum-size=256M`; falls back to read-only directory measurement if usage cannot be read. | `appsweep/log_cleaner.py` | Mocked usage parsing, vacuum discovery, and no-`journalctl` report-only fallback. | **Not executed.** |
+| pkexec | Wraps only individual allowlisted system commands with `pkexec`; reports a missing helper without launching the command; never runs the whole application as root. | `appsweep/runner.py`, `appsweep/cleanup_engine.py` | Mocked command wrapping, missing-`pkexec` failure, and command allowlist tests. | **Not executed.** |
+| gio | Finds the desktop Trash; moves personal files with `gio trash --`; empties only with `gio trash --empty`; has no direct-delete fallback. Personal files are Trash-only; permanent deletion fails closed. The final-component same-UID pathname race is an accepted, recoverable limitation and is not claimed fixed. | `appsweep/trash_manager.py`, `appsweep/cleanup_engine.py`, `appsweep/safety.py` | Mocked Trash move, Trash empty, missing-`gio` no-fallback path, pre-handoff revalidation, Gio failure no-fallback, public permanent-deletion refusal, and Trash preview tests. No real Gio race reproduction. | **Binary present; real Trash behavior and same-UID handoff remain BLOCKED.** |
+| Capability detection | Checks PATH visibility without executing host tools; reports available/missing tools, actionable limits, and the mock/unverified status. | `appsweep/capabilities.py` | `tests/test_capabilities.py` verifies availability, warnings, empty reports, and no command execution. | **Not applicable; detection itself is local and read-only.** |
 
 ## What is disabled when a tool is missing
 
@@ -88,25 +94,28 @@ These tests are explicitly mocked. They do not invoke the named host tools.
 | --- | --- |
 | `tests/test_capabilities.py` | PATH-only detection, all-missing warnings, DNF5-only handling, RPM/DNF warning selection, empty-report behavior, and no command execution during detection. |
 | `tests/test_host_integration_mocks.py` | Missing package manager/Flatpak fallback, rpm-ostree metadata discovery, RPM old-kernel discovery with running-kernel exclusion, journal usage parsing, journalctl vacuum discovery, and no-journalctl report-only fallback. |
-| `tests/test_package_flatpak.py` | DNF/DNF5 detection, autoremove parsing and cacheonly preview, Flatpak runtime parsing and unavailable fallback, command shapes, and pkexec behavior. |
-| `tests/test_cleanup_engine.py` | `gio trash --` for personal files, no-permanent-delete fallback when `gio` is missing, and allowlisted command validation. |
+| `tests/test_package_flatpak.py` | DNF/DNF5 detection, autoremove parsing and cacheonly preview, explicit refresh retry, no-refresh refusal, Flatpak runtime parsing and unavailable fallback, command shapes, and pkexec behavior. |
+| `tests/test_cleanup_engine.py` | `gio trash --` for personal files, no-permanent-delete fallback when `gio` is missing, pre-handoff revalidation, Gio failure without fallback, fail-closed permanent-plan refusal, and allowlisted command validation. |
 | `tests/test_trash.py` | Trash size/count/examples and the no-`gio` report-only path. |
-| `tests/test_cli.py` | Report-only JSON includes capability status, the terminal shows `HOST INTEGRATIONS`, and no real-host claim is made. |
+| `tests/test_cli.py` | Report-only JSON includes capability status, the terminal shows `HOST INTEGRATIONS`, report-only/dry-run/refresh-metadata messaging, no permanent-deletion prompt, and no real-host claim is made. |
 
 Run the mocked suite:
 
 ```bash
-python3 -m compileall -q appssweep tests
+python3 -m compileall -q appsweep tests
 python3 -m unittest discover -v
 ```
 
-Current result: 166 tests total; 165 pass and 1 Rich-only test skips without
-Rich; all 166 pass with Rich. These are mock/unit results, not host validation.
+Current result: 185 tests total; 184 pass and 1 Rich-only test skips without
+Rich. The previous Rich-enabled suite passed; the current Rich run and Ruff
+check are blocked because the temporary venv/tool is unavailable. These are
+mock/unit results, not host validation. `pytest` is not installed in the
+current environment, so it was not run.
 
 Optional Rich run:
 
 ```bash
-/tmp/opencode/appssweep-rich-venv/bin/python -m unittest discover -v
+/tmp/opencode/appsweep-rich-venv/bin/python -m unittest discover -v
 ```
 
 ## Manual real-Fedora validation checklist
@@ -122,14 +131,14 @@ data and the normal AppSweep `CLEAN` confirmation.
 - [ ] `uname -r`
 - [ ] `python3 --version` (include a Python 3.10 run if supported)
 - [ ] `command -v dnf dnf5 rpm-ostree rpm flatpak journalctl pkexec gio`
-- [ ] Record the AppSweep commit and `appssweep --version`.
+- [ ] Record the AppSweep commit and `appsweep --version`.
 - [ ] Record which tools are absent. Mark absent tool rows “N/A”, not “FAIL”.
 
 ### 2. Capability report and graceful fallback
 
 - [ ] Run:
   ```bash
-  appssweep --mode quick --report-only --no-color
+  appsweep --mode quick --report-only --no-color
   ```
 - [ ] Confirm `HOST INTEGRATIONS` lists available and missing tools.
 - [ ] Confirm every missing tool has an actionable limit and that the scan still
@@ -137,7 +146,7 @@ data and the normal AppSweep `CLEAN` confirmation.
 - [ ] Export JSON and confirm `capabilities.real_host_verified` is `false` until
       this checklist is signed off:
   ```bash
-  appssweep --mode quick --report-only --no-color --json /tmp/appssweep-check.json
+  appsweep --mode quick --report-only --no-color --json /tmp/appsweep-check.json
   ```
 - [ ] Confirm no host command was executed merely to produce the capability list.
 
@@ -152,8 +161,11 @@ package-manager checks.
       content.
 - [ ] Confirm the autoremove preview uses the package manager's non-executing
       preview and does not remove packages in report-only mode.
-- [ ] If `--refresh-metadata` is tested, confirm it is opt-in and that a failure
-      is reported without changing the system.
+- [ ] If `--refresh-metadata` is tested, confirm AppSweep prints a conspicuous
+      warning, retries without `--cacheonly` only when package discovery is
+      active, and changes the final report-only text to distinguish “no cleanup
+      actions” from “metadata may have been refreshed.” Confirm a dry-run
+      without the flag never requests a refresh.
 - [ ] On a disposable system, and only with explicit authorization, run one
       confirmed cache cleanup. Confirm it used `dnf clean all`/the detected
       binary and did not delete package files directly.
@@ -213,7 +225,7 @@ package-manager checks.
 
 ### 8. pkexec
 
-- [ ] Confirm the application refuses to run with `sudo appssweep`/euid 0.
+- [ ] Confirm the application refuses to run with `sudo appsweep`/euid 0.
 - [ ] Trigger one allowlisted system action and confirm pkexec asks for approval
       for that command only.
 - [ ] Cancel the approval prompt; confirm the item is reported as failed and
@@ -235,10 +247,17 @@ package-manager checks.
       cross-filesystem limitations.
 - [ ] Remove/hide `gio` from the test PATH and confirm files become report-only;
       confirm no permanent deletion fallback occurs.
+- [ ] On disposable data only, evaluate a final-component same-UID pathname
+      swap before and during the `gio trash` handoff. Record whether the wrong
+      file can be moved to Trash and confirm it remains recoverable. This is an
+      accepted limitation, not a claimed race fix; real Gio remains BLOCKED
+      until this is completed.
+- [ ] Confirm AppSweep never offers a permanent-deletion prompt and that a
+      synthetic permanent plan is refused before any rename or unlink.
 
 ### 10. Full scan and coverage
 
-- [ ] Run `appssweep --mode full --report-only --no-color` on a representative
+- [ ] Run `appsweep --mode full --report-only --no-color` on a representative
       Fedora test system.
 - [ ] Confirm `/home`, `/var`, `/usr`, `/boot`, `/opt`, `/etc`, `/root`, `/srv`,
       caches, logs, and Trash are represented where accessible.
@@ -253,7 +272,7 @@ package-manager checks.
       complete.
 - [ ] Check runtime and memory use on a large home directory.
 
-### 11. Cache and personal-deletion boundary test
+### 11. Cache and personal-file boundary test
 
 Use a disposable test account and disposable fixtures only.
 
@@ -265,17 +284,23 @@ Use a disposable test account and disposable fixtures only.
       separate device.
 - [ ] Create a disposable personal file and exercise the normal Trash path;
       confirm no permanent-delete fallback occurs.
-- [ ] If permanent deletion is explicitly authorized on disposable data,
-      confirm a changed parent or changed file is reported and not removed.
+- [ ] Confirm no permanent-deletion prompt is shown. Attempt to construct a
+      `permanent_personal=True` plan through the public engine/API on disposable
+      data and confirm it is refused before any rename or unlink.
+- [ ] Confirm the CLI never offers `DELETE PERMANENTLY` and that a missing Gio
+      leaves the personal file untouched.
+- [ ] Confirm an existing `0755` audit directory becomes `0700`, and that a
+      group/world-writable audit directory is refused.
 - [ ] Record that `/proc/self/fdinfo` mount-ID verification is available on the
-      host; if it is not, confirm cache cleanup fails closed instead of deleting.
+      host; if it is not, confirm cache cleanup fails closed instead of
+      deleting.
 
 ### 12. Python 3.10 compatibility
 
 - [ ] Create a Python 3.10 environment on a supported Fedora release.
 - [ ] Run:
   ```bash
-  python3.10 -m compileall -q appssweep tests
+  python3.10 -m compileall -q appsweep tests
   python3.10 -m unittest discover -v
   ```
 - [ ] Run a quick report-only scan and a JSON/CSV export.
