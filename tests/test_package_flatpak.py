@@ -8,14 +8,14 @@ from __future__ import annotations
 import subprocess
 import unittest
 
-from appssweep.cleanup_engine import validate_item_command
-from appssweep.flatpak import (
+from appsweep.cleanup_engine import validate_item_command
+from appsweep.flatpak import (
     _parse_runtime_line,
     _used_aliases,
     discover_flatpak,
 )
-from appssweep.models import ActionKind, CleanupItem, RiskGroup
-from appssweep.package_manager import (
+from appsweep.models import ActionKind, CleanupItem, RiskGroup
+from appsweep.package_manager import (
     PackageManagerInfo,
     detect_package_manager,
     discover_package_cleanup,
@@ -25,7 +25,7 @@ from appssweep.package_manager import (
     running_kernel_release,
     version_sort_key,
 )
-from appssweep.runner import CommandRunner
+from appsweep.runner import CommandRunner
 
 
 def completed(args, code=0, stdout="", stderr=""):
@@ -164,6 +164,48 @@ Freed space: 1.2 GB
         self.assertEqual(len(calls), 1)
         self.assertIn("--cacheonly", calls[0])
         self.assertNotIn("--refresh", calls[0])
+
+    def test_preview_autoremove_refresh_retry_only_when_explicitly_allowed(self) -> None:
+        calls = []
+
+        def handler(args, **kwargs):
+            calls.append(tuple(args))
+            if "--cacheonly" in args:
+                return completed(args, code=1, stderr="cache-only preview failed")
+            return completed(
+                args,
+                stdout="Removing:\n httpd-2.4.62-1.fc40.x86_64 1.0 M\n",
+            )
+
+        info = PackageManagerInfo(kind="dnf5", binary="/usr/bin/dnf5")
+        preview = preview_autoremove(
+            runner({"dnf5": "/usr/bin/dnf5"}, handler),
+            info,
+            current_release="6.8.5-301.fc40.x86_64",
+            allow_metadata_refresh=True,
+        )
+        self.assertTrue(preview.ok)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("--cacheonly", calls[0])
+        self.assertNotIn("--cacheonly", calls[1])
+
+    def test_preview_autoremove_does_not_retry_without_refresh_permission(self) -> None:
+        calls = []
+
+        def handler(args, **kwargs):
+            calls.append(tuple(args))
+            return completed(args, code=1, stderr="cache-only preview failed")
+
+        info = PackageManagerInfo(kind="dnf5", binary="/usr/bin/dnf5")
+        preview = preview_autoremove(
+            runner({"dnf5": "/usr/bin/dnf5"}, handler),
+            info,
+            current_release="6.8.5-301.fc40.x86_64",
+            allow_metadata_refresh=False,
+        )
+        self.assertFalse(preview.ok)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("no network refresh was attempted", preview.reason)
 
     def test_package_discovery_without_cache_or_tools(self) -> None:
         discovery = discover_package_cleanup(

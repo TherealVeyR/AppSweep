@@ -9,10 +9,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from appssweep.filesystem import MountInfo
-from appssweep.models import ScanConfig
-from appssweep.scanner import CancellationToken, StorageScanner
-from appssweep.scanner import scan as convenience_scan
+from appsweep.filesystem import MountInfo
+from appsweep.models import ScanConfig
+from appsweep.scanner import CancellationToken, StorageScanner
+from appsweep.scanner import scan as convenience_scan
 
 
 def config(root: Path, **overrides) -> ScanConfig:
@@ -117,6 +117,117 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(sum(result.file_type_sizes.values()), 4096)
         self.assertEqual(len(result.top_files), 1)
         self.assertEqual(result.top_files[0].st_ino, os.lstat(original).st_ino)
+
+    def test_personal_hardlink_alias_survives_nonpersonal_root_scanned_first(
+        self,
+    ) -> None:
+        outside = self.root / "outside"
+        personal = self.root / "personal"
+        outside.mkdir()
+        personal.mkdir()
+        original = outside / "shared.bin"
+        original.write_bytes(b"x" * 4096)
+        personal_alias = personal / "shared.bin"
+        os.link(original, personal_alias)
+
+        for roots in (
+            (str(outside), str(personal)),
+            (str(personal), str(outside)),
+        ):
+            with self.subTest(roots=roots):
+                result = self.scan(
+                    config(
+                        self.root,
+                        roots=roots,
+                        personal_roots=(str(personal),),
+                    )
+                )
+
+                self.assertEqual(result.total_files, 2)
+                self.assertEqual(result.unique_files, 1)
+                self.assertEqual(result.total_bytes, 4096)
+                self.assertEqual(len(result.top_files), 1)
+                self.assertEqual(
+                    result.top_files[0].path,
+                    os.path.normpath(os.path.abspath(str(personal_alias))),
+                )
+
+    def test_hardlink_alias_representative_is_scan_order_independent(self) -> None:
+        first = self.root / "z-alias-first"
+        second = self.root / "a-alias-second"
+        first.mkdir()
+        second.mkdir()
+        original = first / "z.bin"
+        original.write_bytes(b"x" * 4096)
+        smaller_path = second / "a.bin"
+        os.link(original, smaller_path)
+
+        representatives = []
+        for roots in (
+            (str(first), str(second)),
+            (str(second), str(first)),
+        ):
+            result = self.scan(
+                config(
+                    self.root,
+                    roots=roots,
+                    personal_roots=(str(first), str(second)),
+                )
+            )
+            self.assertEqual(result.unique_files, 1)
+            self.assertEqual(result.total_bytes, 4096)
+            self.assertEqual(len(result.top_files), 1)
+            representatives.append(result.top_files[0].path)
+
+        self.assertEqual(
+            representatives,
+            [os.path.normpath(os.path.abspath(str(smaller_path)))] * 2,
+        )
+
+    def test_same_size_alias_update_does_not_evict_another_personal_file(
+        self,
+    ) -> None:
+        worse_alias = self.root / "z-alias.bin"
+        worse_alias.write_bytes(b"x" * 4096)
+        better_alias = self.root / "a-alias.bin"
+        os.link(worse_alias, better_alias)
+        other = self.root / "middle-other.bin"
+        other.write_bytes(b"y" * 4096)
+
+        real_scandir = os.scandir
+
+        class OrderedScandir:
+            """Yield this fixture in creation order despite filesystem order."""
+
+            order = ("z-alias.bin", "a-alias.bin", "middle-other.bin")
+
+            def __init__(self, target) -> None:
+                by_name = {entry.name: entry for entry in real_scandir(target)}
+                self._entries = [
+                    by_name.pop(name) for name in self.order if name in by_name
+                ]
+                self._entries.extend(by_name.values())
+
+            def __enter__(self):
+                return self
+
+            def __iter__(self):
+                return iter(self._entries)
+
+            def __exit__(self, exc_type, exc, traceback) -> None:
+                return None
+
+        with patch("appsweep.scanner.os.scandir", side_effect=OrderedScandir):
+            result = self.scan(config(self.root, top_n=2))
+
+        self.assertEqual(result.total_files, 3)
+        self.assertEqual(result.unique_files, 2)
+        self.assertEqual(result.total_bytes, 8192)
+        self.assertEqual(len(result.top_files), 2)
+        self.assertEqual(
+            [item.filename for item in result.top_files],
+            ["a-alias.bin", "middle-other.bin"],
+        )
 
     def test_hardlinked_loose_file_roots_are_counted_once_globally(self) -> None:
         first = self.root / "loose-one.bin"
@@ -290,7 +401,7 @@ class ScannerTests(unittest.TestCase):
                 os.symlink(outside, queued)
             return real_scandir(target)
 
-        with patch("appssweep.scanner.os.scandir", side_effect=swap_on_second_scandir):
+        with patch("appsweep.scanner.os.scandir", side_effect=swap_on_second_scandir):
             result = self.scan(config(self.root))
 
         self.assertGreaterEqual(calls["count"], 2)
@@ -322,7 +433,7 @@ class ScannerTests(unittest.TestCase):
                 os.symlink(outside, queued)
             return real_open(path, flags, *args, **kwargs)
 
-        with patch("appssweep.scanner.os.open", side_effect=swap_before_open):
+        with patch("appsweep.scanner.os.open", side_effect=swap_before_open):
             result = self.scan(config(self.root))
 
         self.assertTrue(swapped)
@@ -365,7 +476,7 @@ class ScannerTests(unittest.TestCase):
             calls["count"] += 1
             return calls["count"] >= 3
 
-        with patch("appssweep.scanner.os.scandir", side_effect=counting_scandir):
+        with patch("appsweep.scanner.os.scandir", side_effect=counting_scandir):
             result = convenience_scan(config(self.root), cancel_check=cancel_check)
 
         self.assertTrue(result.cancelled)

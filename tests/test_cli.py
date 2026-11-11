@@ -13,8 +13,8 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
-from appssweep.categories import CleanupDiscovery
-from appssweep.cli import (
+from appsweep.categories import CleanupDiscovery
+from appsweep.cli import (
     UsageError,
     build_parser,
     build_scan_setup,
@@ -22,7 +22,9 @@ from appssweep.cli import (
     main,
     parse_categories,
 )
-from appssweep.large_files import quick_personal_roots
+from appsweep.large_files import quick_personal_roots
+
+from .helpers import write_file
 
 
 class CliTests(unittest.TestCase):
@@ -98,7 +100,7 @@ class CliTests(unittest.TestCase):
             build_scan_setup(self.args(paths=["\x00"]))
 
     def test_scan_config_normalization_drops_empty_roots(self) -> None:
-        from appssweep.models import ScanConfig
+        from appsweep.models import ScanConfig
 
         self.assertEqual(ScanConfig(roots=("",)).normalized().roots, ())
         self.assertEqual(
@@ -131,7 +133,7 @@ class CliTests(unittest.TestCase):
                     "--min-size",
                     "1M",
                     "--categories",
-                    "cache",
+                    "packages",
                     "--report-only",
                     "--no-color",
                     *extra_args,
@@ -139,7 +141,7 @@ class CliTests(unittest.TestCase):
                 stdout = io.StringIO()
                 with (
                     patch(
-                        "appssweep.cli.discover_cleanup",
+                        "appsweep.cli.discover_cleanup",
                         return_value=CleanupDiscovery(),
                     ) as discovery,
                     contextlib.redirect_stdout(stdout),
@@ -151,6 +153,107 @@ class CliTests(unittest.TestCase):
                     discovery.call_args.kwargs["allow_metadata_refresh"],
                     expected,
                 )
+
+    def test_report_only_metadata_refresh_and_dry_run_semantics(self) -> None:
+        cases = (
+            ("report-only", ["--report-only"], False, False),
+            ("report-only-refresh", ["--report-only", "--refresh-metadata"], True, True),
+            ("dry-run", ["--dry-run"], False, False),
+            ("dry-run-refresh", ["--dry-run", "--refresh-metadata"], True, True),
+        )
+        for name, extra_args, expected_refresh, expect_warning in cases:
+            with self.subTest(name=name):
+                stdout = io.StringIO()
+                with (
+                    patch(
+                        "appsweep.cli.discover_cleanup",
+                        return_value=CleanupDiscovery(),
+                    ) as discovery,
+                    contextlib.redirect_stdout(stdout),
+                ):
+                    code = main(
+                        [
+                            "--mode",
+                            "custom",
+                            "--path",
+                            str(self.scan_root),
+                            "--min-size",
+                            "1M",
+                            "--categories",
+                            "packages",
+                            "--no-color",
+                            *extra_args,
+                        ]
+                    )
+                output = stdout.getvalue()
+                self.assertEqual(code, 0, output)
+                self.assertIs(
+                    discovery.call_args.kwargs["allow_metadata_refresh"],
+                    expected_refresh,
+                )
+                self.assertIn("Report only", output)
+                if expect_warning:
+                    self.assertIn("Metadata refresh is enabled", output)
+                    self.assertIn(
+                        "No cleanup actions were performed. DNF repository metadata "
+                        "may have been refreshed.",
+                        output,
+                    )
+                else:
+                    self.assertNotIn("Metadata refresh is enabled", output)
+                    self.assertIn("No changes were made.", output)
+
+    def test_refresh_metadata_without_packages_is_explicitly_ignored(self) -> None:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            code = main(
+                [
+                    "--mode",
+                    "custom",
+                    "--path",
+                    str(self.scan_root),
+                    "--min-size",
+                    "1M",
+                    "--categories",
+                    "none",
+                    "--report-only",
+                    "--refresh-metadata",
+                    "--no-color",
+                ]
+            )
+        output = stdout.getvalue()
+        self.assertEqual(code, 0, output)
+        self.assertIn("--refresh-metadata has no effect", output)
+        self.assertIn("No changes were made.", output)
+        self.assertNotIn("may have been refreshed", output)
+
+    def test_interactive_personal_selection_never_offers_permanent_deletion(self) -> None:
+        file = write_file(self.scan_root / "large.bin", 2 * 1024 * 1024)
+        stdout = io.StringIO()
+        with (
+            patch.object(sys, "stdin", io.StringIO("none\n")),
+            contextlib.redirect_stdout(stdout),
+        ):
+            code = main(
+                [
+                    "--mode",
+                    "custom",
+                    "--path",
+                    str(self.scan_root),
+                    "--min-size",
+                    "1M",
+                    "--categories",
+                    "none",
+                    "--interactive",
+                    "--no-color",
+                ]
+            )
+        output = stdout.getvalue()
+        self.assertEqual(code, 0, output)
+        self.assertTrue(file.exists())
+        self.assertIn("Permanent personal-file deletion is disabled", output)
+        self.assertNotIn("DELETE PERMANENTLY", output)
+        self.assertNotIn("Permanently delete these files", output)
 
     def test_report_only_main_writes_json_without_prompts(self) -> None:
         file = self.scan_root / "large.bin"
@@ -279,7 +382,7 @@ class CliTests(unittest.TestCase):
         self.assertFalse(cache_file.exists(), output)
         self.assertIn("READY TO CLEAN", output)
         self.assertIn("CLEANUP RESULTS", output)
-        audit_log = self.home / ".local" / "state" / "appssweep" / "cleanup-audit.log"
+        audit_log = self.home / ".local" / "state" / "appsweep" / "cleanup-audit.log"
         self.assertTrue(audit_log.is_file())
         audit_text = audit_log.read_text(encoding="utf-8")
         self.assertIn('"cleanup_started"', audit_text)
@@ -292,7 +395,7 @@ class CliTests(unittest.TestCase):
         cache_app.mkdir(parents=True)
         cache_file = cache_app / "cache.bin"
         cache_file.write_bytes(b"c" * (2 * 1024 * 1024))
-        unsafe_state = self.home / ".local" / "state" / "appssweep"
+        unsafe_state = self.home / ".local" / "state" / "appsweep"
         unsafe_state.mkdir(parents=True)
         unsafe_state.chmod(0o777)
 

@@ -11,8 +11,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from appssweep.trash_manager import discover_trash
-from appssweep.util import human_bytes
+from appsweep.trash_manager import discover_trash
+from appsweep.util import human_bytes
 from tests.helpers import FakeRunner, write_file
 
 

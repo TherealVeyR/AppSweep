@@ -10,10 +10,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from appssweep.analyzer import build_report
-from appssweep.categories import CleanupDiscovery
-from appssweep.models import ActionKind, CleanupItem, RiskGroup, ScanConfig, ScanResult
-from appssweep.reporting import (
+from appsweep.analyzer import build_report
+from appsweep.categories import CleanupDiscovery
+from appsweep.models import ActionKind, CleanupItem, RiskGroup, ScanConfig, ScanResult
+from appsweep.reporting import (
     ExportError,
     file_rows_for_csv,
     render_csv,

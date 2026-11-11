@@ -9,15 +9,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from appssweep.cleanup_engine import CleanupEngine
-from appssweep.models import (
+from appsweep.cleanup_engine import CleanupEngine
+from appsweep.models import (
     ActionKind,
     CleanupItem,
     CleanupPlan,
     RiskGroup,
 )
-from appssweep.runner import CommandRunner
-from appssweep.safety import SafetyPolicy, make_authorization
+from appsweep.runner import CommandRunner
+from appsweep.safety import SafetyPolicy, Validation, make_authorization
 
 from .helpers import snapshot_for, write_file
 
@@ -142,31 +142,83 @@ class CleanupEngineTests(unittest.TestCase):
         plan = CleanupPlan(personal_files=[snapshot])
         auth = make_authorization([], [snapshot], permanent_personal=False)
 
-        execution = self.engine(
-            CommandRunner(which=lambda name: None)
-        ).execute_plan(plan, auth)
+        with patch("appsweep.cleanup_engine.os.unlink") as unlink:
+            execution = self.engine(
+                CommandRunner(which=lambda name: None)
+            ).execute_plan(plan, auth)
 
         self.assertEqual(execution.failed, 1)
         self.assertTrue(file.exists())
+        unlink.assert_not_called()
 
-    def test_permanent_personal_requires_extra_authorization_bit(self) -> None:
+    def test_gio_handoff_revalidates_and_refuses_a_changed_path(self) -> None:
+        file = write_file(self.home / "Documents" / "movie.mp4", 1024)
+        snapshot = snapshot_for(file)
+        calls = []
+
+        def handler(args, **kwargs):
+            calls.append(tuple(args))
+            return completed(args, code=0)
+
+        runner = CommandRunner(
+            which=lambda name: "/usr/bin/gio" if name == "gio" else None,
+            run_fn=lambda args, **kwargs: handler(args, **kwargs),
+        )
+        plan = CleanupPlan(personal_files=[snapshot])
+        auth = make_authorization([], [snapshot], permanent_personal=False)
+
+        with patch.object(
+            self.policy,
+            "validate_personal_snapshot",
+            side_effect=[
+                Validation(True, path=str(file)),
+                Validation(False, "changed after the plan was authorized"),
+            ],
+        ):
+            execution = self.engine(runner).execute_plan(plan, auth)
+
+        self.assertEqual(execution.failed, 1)
+        self.assertEqual(calls, [])
+        self.assertTrue(file.exists())
+        self.assertIn("Revalidation failed", execution.results[0].message)
+
+    def test_gio_failure_does_not_fall_back_to_unlink(self) -> None:
+        file = write_file(self.home / "Documents" / "movie.mp4", 1024)
+        snapshot = snapshot_for(file)
+        runner = CommandRunner(
+            which=lambda name: "/usr/bin/gio" if name == "gio" else None,
+            run_fn=lambda args, **kwargs: completed(args, code=1, stderr="trash failed"),
+        )
+        plan = CleanupPlan(personal_files=[snapshot])
+        auth = make_authorization([], [snapshot], permanent_personal=False)
+
+        with patch("appsweep.cleanup_engine.os.unlink") as unlink:
+            execution = self.engine(runner).execute_plan(plan, auth)
+
+        self.assertEqual(execution.failed, 1)
+        self.assertTrue(file.exists())
+        unlink.assert_not_called()
+        self.assertIn("did not fall back to permanent deletion", execution.results[0].message)
+
+    def test_permanent_personal_is_disabled_even_with_authorization(self) -> None:
         file = write_file(self.home / "Documents" / "old.iso", 2048)
+        original = file.read_bytes()
         snapshot = snapshot_for(file)
         plan = CleanupPlan(personal_files=[snapshot], permanent_personal=True)
+        auth = make_authorization([], [snapshot], permanent_personal=True)
 
-        with self.assertRaises(PermissionError):
-            self.engine().execute_plan(
-                plan,
-                make_authorization([], [snapshot], permanent_personal=False),
-            )
+        with (
+            patch.object(
+                self.policy, "_remove_personal_file_quarantine_legacy"
+            ) as legacy,
+            self.assertRaises(PermissionError) as raised,
+        ):
+            self.engine().execute_plan(plan, auth)
+
+        self.assertIn("disabled", str(raised.exception))
+        legacy.assert_not_called()
         self.assertTrue(file.exists())
-
-        execution = self.engine().execute_plan(
-            plan,
-            make_authorization([], [snapshot], permanent_personal=True),
-        )
-        self.assertFalse(file.exists())
-        self.assertEqual(execution.succeeded, 1)
+        self.assertEqual(file.read_bytes(), original)
 
     def test_invalid_command_shape_is_refused_before_running(self) -> None:
         item = CleanupItem(

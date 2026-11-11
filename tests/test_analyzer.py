@@ -6,9 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from appssweep.analyzer import all_report_only, build_report
-from appssweep.categories import CleanupDiscovery
-from appssweep.models import (
+from appsweep.analyzer import all_report_only, build_report
+from appsweep.categories import CleanupDiscovery
+from appsweep.models import (
     ActionKind,
     CleanupItem,
     ReportOnlyFinding,

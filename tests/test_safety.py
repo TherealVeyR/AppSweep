@@ -9,21 +9,21 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from appssweep.cleanup_engine import CleanupEngine
-from appssweep.models import (
+from appsweep.cleanup_engine import CleanupEngine
+from appsweep.models import (
     ActionKind,
     Authorization,
     CleanupItem,
     CleanupPlan,
     RiskGroup,
 )
-from appssweep.safety import (
+from appsweep.safety import (
     SafetyError,
     SafetyPolicy,
     authorization_covers,
     make_authorization,
 )
-from appssweep.util import is_within
+from appsweep.util import is_within
 
 from .helpers import snapshot_for, write_file
 
@@ -72,6 +72,83 @@ class SafetyTests(unittest.TestCase):
         validation = self.policy.validate_personal_snapshot(snapshot)
         self.assertFalse(validation.ok)
         self.assertIn("changed", validation.reason)
+
+    def test_snapshot_validation_rejects_in_place_change_with_restored_mtime(
+        self,
+    ) -> None:
+        file = write_file(self.home / "Documents" / "same-size.bin", 1024)
+        snapshot = snapshot_for(file)
+        file.write_bytes(b"z" * 1024)
+        os.utime(file, ns=(snapshot.mtime_ns, snapshot.mtime_ns))
+        os.chmod(file, 0o600)
+
+        validation = self.policy.validate_personal_snapshot(snapshot)
+
+        self.assertFalse(validation.ok)
+        self.assertIn("change time", validation.reason)
+
+    def test_remove_personal_file_refuses_in_place_change_with_restored_mtime(
+        self,
+    ) -> None:
+        file = write_file(self.home / "Documents" / "same-size.bin", 1024)
+        snapshot = snapshot_for(file)
+        file.write_bytes(b"z" * 1024)
+        os.utime(file, ns=(snapshot.mtime_ns, snapshot.mtime_ns))
+        os.chmod(file, 0o600)
+
+        with self.assertRaises(SafetyError):
+            self.policy._remove_personal_file_quarantine_legacy(snapshot)
+
+        self.assertEqual(file.read_bytes(), b"z" * 1024)
+
+    def test_public_permanent_deletion_refuses_without_moving_or_unlinking(self) -> None:
+        file = write_file(self.home / "Documents" / "report.pdf", 2048)
+        snapshot = snapshot_for(file)
+        original = file.read_bytes()
+
+        with (
+            patch("appsweep.safety.os.rename") as rename,
+            patch("appsweep.safety.os.unlink") as unlink,
+            patch.object(
+                self.policy, "_remove_personal_file_quarantine_legacy"
+            ) as legacy,
+            self.assertRaises(SafetyError) as raised,
+        ):
+            self.policy.remove_personal_file(snapshot)
+
+        self.assertIn("disabled", str(raised.exception))
+        rename.assert_not_called()
+        unlink.assert_not_called()
+        legacy.assert_not_called()
+        self.assertTrue(file.exists())
+        self.assertEqual(file.read_bytes(), original)
+
+    def test_same_uid_quarantine_replacement_cannot_reach_a_public_unlink(self) -> None:
+        selected = write_file(self.home / "Documents" / "selected.bin", 2048)
+        snapshot = snapshot_for(selected)
+        quarantine = self.home / "Documents" / ".appsweep-quarantine-test"
+        quarantine.mkdir()
+        replacement = write_file(quarantine / "selected.bin", 37)
+
+        # If AppSweep ever exposed the legacy quarantine again, this side effect
+        # would model the audit's same-UID boundary: move the selected inode away
+        # and substitute a different file at the final-unlink name.
+        def same_uid_attack(*args, **kwargs):
+            os.rename(selected, quarantine / "moved-original.bin")
+            write_file(quarantine / "selected.bin", 37)
+            raise AssertionError("public permanent deletion reached a destructive syscall")
+
+        with (
+            patch("appsweep.safety.os.rename", side_effect=same_uid_attack),
+            patch("appsweep.safety.os.unlink", side_effect=same_uid_attack),
+            self.assertRaises(SafetyError),
+        ):
+            self.policy.remove_personal_file(snapshot)
+
+        self.assertTrue(selected.exists())
+        self.assertEqual(selected.read_bytes(), b"x" * 2048)
+        self.assertTrue(replacement.exists())
+        self.assertFalse((quarantine / "moved-original.bin").exists())
 
     def test_snapshot_validation_rejects_hidden_and_protected_paths(self) -> None:
         hidden = write_file(self.home / "Documents" / ".hidden", 1024)
@@ -185,7 +262,7 @@ class SafetyTests(unittest.TestCase):
     def test_remove_personal_file_revalidates_and_unlinks(self) -> None:
         file = write_file(self.home / "Documents" / "old.iso", 2048)
         snapshot = snapshot_for(file)
-        result = self.policy.remove_personal_file(snapshot)
+        result = self.policy._remove_personal_file_quarantine_legacy(snapshot)
         self.assertFalse(file.exists())
         self.assertEqual(result.bytes_removed, 2048)
 
@@ -194,7 +271,7 @@ class SafetyTests(unittest.TestCase):
         snapshot = snapshot_for(file)
         file.write_bytes(b"new content")
         with self.assertRaises(SafetyError):
-            self.policy.remove_personal_file(snapshot)
+            self.policy._remove_personal_file_quarantine_legacy(snapshot)
         self.assertTrue(file.exists())
 
     @unittest.skipIf(
@@ -217,7 +294,7 @@ class SafetyTests(unittest.TestCase):
                 os.symlink(outside, self.cache)
             return real_scandir(target)
 
-        with patch("appssweep.safety.os.scandir", side_effect=swap_before_scandir):
+        with patch("appsweep.safety.os.scandir", side_effect=swap_before_scandir):
             result = self.policy.clear_cache_target(str(self.cache))
 
         self.assertTrue(swapped)
@@ -249,7 +326,7 @@ class SafetyTests(unittest.TestCase):
                 os.symlink(outside, nested)
             return real_scandir(target)
 
-        with patch("appssweep.safety.os.scandir", side_effect=swap_on_nested_scandir):
+        with patch("appsweep.safety.os.scandir", side_effect=swap_on_nested_scandir):
             result = self.policy.clear_cache_target(str(self.cache))
 
         self.assertGreaterEqual(calls["count"], 2)
@@ -324,7 +401,7 @@ class SafetyTests(unittest.TestCase):
 
         # Simulated device difference: a real secondary/bind mount was not
         # authorized in this environment. This verifies the policy branch.
-        with patch("appssweep.safety.os.stat", side_effect=fake_stat):
+        with patch("appsweep.safety.os.stat", side_effect=fake_stat):
             result = self.policy.clear_cache_target(str(self.cache))
 
         self.assertTrue(inside.exists())
@@ -384,7 +461,7 @@ class SafetyTests(unittest.TestCase):
                 os.symlink(outside, self.cache)
             return real_unlink(path, *args, **kwargs)
 
-        with patch("appssweep.safety.os.unlink", side_effect=swap_before_unlink):
+        with patch("appsweep.safety.os.unlink", side_effect=swap_before_unlink):
             result = self.policy.clear_cache_target(str(cache_file))
 
         self.assertTrue(swapped)
@@ -414,8 +491,8 @@ class SafetyTests(unittest.TestCase):
                 os.symlink(outside, documents)
             return real_unlink(path, *args, **kwargs)
 
-        with patch("appssweep.safety.os.unlink", side_effect=swap_before_unlink):
-            result = self.policy.remove_personal_file(snapshot)
+        with patch("appsweep.safety.os.unlink", side_effect=swap_before_unlink):
+            result = self.policy._remove_personal_file_quarantine_legacy(snapshot)
 
         self.assertTrue(swapped)
         self.assertEqual(victim.read_bytes(), b"x" * 23)
@@ -456,7 +533,7 @@ class SafetyTests(unittest.TestCase):
             ),
             self.assertRaises(SafetyError),
         ):
-            self.policy.remove_personal_file(snapshot)
+            self.policy._remove_personal_file_quarantine_legacy(snapshot)
 
         self.assertTrue(swapped)
         self.assertEqual(victim.read_bytes(), b"x" * 23)
@@ -498,7 +575,7 @@ class SafetyTests(unittest.TestCase):
             ),
             self.assertRaises(SafetyError),
         ):
-            self.policy.remove_personal_file(snapshot)
+            self.policy._remove_personal_file_quarantine_legacy(snapshot)
 
         self.assertTrue(swapped)
         self.assertEqual((documents / "report.txt").read_bytes(), b"x" * 23)
@@ -526,10 +603,10 @@ class SafetyTests(unittest.TestCase):
             return real_stat(path, *args, **kwargs)
 
         with (
-            patch("appssweep.safety.os.stat", side_effect=replace_before_final_stat),
+            patch("appsweep.safety.os.stat", side_effect=replace_before_final_stat),
             self.assertRaises(SafetyError),
         ):
-            self.policy.remove_personal_file(snapshot)
+            self.policy._remove_personal_file_quarantine_legacy(snapshot)
 
         self.assertTrue(swapped)
         self.assertEqual(selected.read_bytes(), b"y" * 23)
@@ -557,13 +634,178 @@ class SafetyTests(unittest.TestCase):
             return real_stat(path, *args, **kwargs)
 
         with (
-            patch("appssweep.safety.os.stat", side_effect=modify_before_final_stat),
+            patch("appsweep.safety.os.stat", side_effect=modify_before_final_stat),
             self.assertRaises(SafetyError),
         ):
-            self.policy.remove_personal_file(snapshot)
+            self.policy._remove_personal_file_quarantine_legacy(snapshot)
 
         self.assertTrue(mutated)
         self.assertEqual(selected.read_bytes(), b"z" * 23)
+
+    @unittest.skipIf(
+        os.geteuid() == 0, "deterministic race tests require an unprivileged user"
+    )
+    def test_remove_personal_file_final_unlink_cannot_delete_replacement(self) -> None:
+        selected = write_file(self.home / "Documents" / "report.txt", 2048)
+        snapshot = snapshot_for(selected)
+        selected_ino = snapshot.st_ino
+        replacement = write_file(
+            self.home / "replacement-final.bin", 37, byte=b"r"
+        )
+        replacement_stat = os.stat(replacement)
+        real_unlink = os.unlink
+        swapped = False
+        unlinked_inode: int | None = None
+
+        def swap_before_final_unlink(path, *args, **kwargs):
+            nonlocal swapped, unlinked_inode
+            if (
+                not swapped
+                and kwargs.get("dir_fd") is not None
+                and os.fspath(path) == selected.name
+            ):
+                swapped = True
+                # The selected inode is already inside the private quarantine.
+                # Put a different file at the user-visible name immediately
+                # before the irreversible unlink.
+                os.replace(replacement, selected)
+                unlinked_inode = os.stat(
+                    path, dir_fd=kwargs["dir_fd"], follow_symlinks=False
+                ).st_ino
+            return real_unlink(path, *args, **kwargs)
+
+        with patch(
+            "appsweep.safety.os.unlink", side_effect=swap_before_final_unlink
+        ):
+            result = self.policy._remove_personal_file_quarantine_legacy(snapshot)
+
+        self.assertTrue(swapped)
+        # The inode irreversibly removed was the one the user selected, not the
+        # replacement that appeared at the user-visible pathname.
+        self.assertEqual(unlinked_inode, selected_ino)
+        self.assertEqual(selected.read_bytes(), b"r" * 37)
+        self.assertEqual(os.stat(selected).st_ino, replacement_stat.st_ino)
+        # The requested inode was removed, so reporting success is accurate.
+        self.assertEqual(result.removed_files, 1)
+        self.assertEqual(result.bytes_removed, 2048)
+
+    @unittest.skipIf(
+        os.geteuid() == 0, "deterministic race tests require an unprivileged user"
+    )
+    def test_remove_personal_file_restores_replacement_before_quarantine(self) -> None:
+        selected = write_file(self.home / "Documents" / "report.txt", 2048)
+        snapshot = snapshot_for(selected)
+        replacement = write_file(
+            self.home / "replacement-before-quarantine.bin", 37, byte=b"r"
+        )
+        real_rename = os.rename
+        swapped = False
+
+        def swap_before_quarantine_rename(src, dst, *args, **kwargs):
+            nonlocal swapped
+            if (
+                not swapped
+                and os.fspath(src) == selected.name
+                and os.fspath(dst) == selected.name
+                and kwargs.get("src_dir_fd") is not None
+                and kwargs.get("dst_dir_fd") is not None
+            ):
+                swapped = True
+                os.replace(replacement, selected)
+            return real_rename(src, dst, *args, **kwargs)
+
+        with (
+            patch(
+                "appsweep.safety.os.rename",
+                side_effect=swap_before_quarantine_rename,
+            ),
+            self.assertRaises(SafetyError),
+        ):
+            self.policy._remove_personal_file_quarantine_legacy(snapshot)
+
+        self.assertTrue(swapped)
+        self.assertEqual(selected.read_bytes(), b"r" * 37)
+
+    @unittest.skipIf(
+        os.geteuid() == 0, "deterministic race tests require an unprivileged user"
+    )
+    def test_remove_personal_file_restores_symlink_replacement(self) -> None:
+        selected = write_file(self.home / "Documents" / "report.txt", 2048)
+        snapshot = snapshot_for(selected)
+        target = write_file(self.home / "symlink-target.txt", 11, byte=b"t")
+        link = self.home / "replacement-link"
+        os.symlink(target, link)
+        real_rename = os.rename
+        swapped = False
+
+        def swap_before_quarantine_rename(src, dst, *args, **kwargs):
+            nonlocal swapped
+            if (
+                not swapped
+                and os.fspath(src) == selected.name
+                and os.fspath(dst) == selected.name
+                and kwargs.get("src_dir_fd") is not None
+                and kwargs.get("dst_dir_fd") is not None
+            ):
+                swapped = True
+                os.replace(link, selected)
+            return real_rename(src, dst, *args, **kwargs)
+
+        with (
+            patch(
+                "appsweep.safety.os.rename",
+                side_effect=swap_before_quarantine_rename,
+            ),
+            self.assertRaises(SafetyError),
+        ):
+            self.policy._remove_personal_file_quarantine_legacy(snapshot)
+
+        self.assertTrue(swapped)
+        self.assertTrue(selected.is_symlink())
+        self.assertEqual(os.readlink(selected), str(target))
+        self.assertEqual(target.read_bytes(), b"t" * 11)
+
+    @unittest.skipIf(
+        os.geteuid() == 0, "deterministic race tests require an unprivileged user"
+    )
+    def test_remove_personal_file_does_not_delete_directory_replacement(self) -> None:
+        documents = self.home / "Documents"
+        selected = write_file(documents / "report.txt", 2048)
+        snapshot = snapshot_for(selected)
+        replacement = documents / "replacement-dir"
+        replacement.mkdir()
+        sentinel = write_file(replacement / "sentinel.txt", 7, byte=b"s")
+        real_rename = os.rename
+        swapped = False
+
+        def swap_before_quarantine_rename(src, dst, *args, **kwargs):
+            nonlocal swapped
+            if (
+                not swapped
+                and os.fspath(src) == selected.name
+                and os.fspath(dst) == selected.name
+                and kwargs.get("src_dir_fd") is not None
+                and kwargs.get("dst_dir_fd") is not None
+            ):
+                swapped = True
+                os.unlink(selected)
+                real_rename(replacement, selected)
+            return real_rename(src, dst, *args, **kwargs)
+
+        with (
+            patch(
+                "appsweep.safety.os.rename",
+                side_effect=swap_before_quarantine_rename,
+            ),
+            self.assertRaises(SafetyError),
+        ):
+            self.policy._remove_personal_file_quarantine_legacy(snapshot)
+
+        self.assertTrue(swapped)
+        quarantine_dirs = list(documents.glob(".appsweep-quarantine-*"))
+        self.assertEqual(len(quarantine_dirs), 1)
+        restored = quarantine_dirs[0] / selected.name / sentinel.name
+        self.assertEqual(restored.read_bytes(), b"s" * 7)
 
     def test_authorization_covers_exact_plan(self) -> None:
         item = CleanupItem(

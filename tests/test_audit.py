@@ -10,8 +10,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from appssweep.audit import append_cleanup_event, audit_log_path
-from appssweep.models import (
+from appsweep.audit import append_cleanup_event, audit_log_path
+from appsweep.models import (
     ActionKind,
     CleanupItem,
     CleanupPlan,
@@ -19,7 +19,7 @@ from appssweep.models import (
     OperationResult,
     RiskGroup,
 )
-from appssweep.safety import make_authorization
+from appsweep.safety import make_authorization
 
 
 class AuditTests(unittest.TestCase):
@@ -86,7 +86,7 @@ class AuditTests(unittest.TestCase):
         )
 
         path = Path(audit_log_path(str(self.home)))
-        self.assertEqual(path, self.state / "appssweep" / "cleanup-audit.log")
+        self.assertEqual(path, self.state / "appsweep" / "cleanup-audit.log")
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(path.parent.stat().st_mode), 0o700)
         records = [
@@ -105,7 +105,7 @@ class AuditTests(unittest.TestCase):
         )
 
     def test_audit_log_refuses_a_symlink_target(self) -> None:
-        parent = self.state / "appssweep"
+        parent = self.state / "appsweep"
         parent.mkdir(parents=True, mode=0o700)
         victim = self.root / "victim.txt"
         victim.write_text("do not touch\n", encoding="utf-8")
@@ -119,7 +119,7 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(victim.read_text(encoding="utf-8"), "do not touch\n")
 
     def test_audit_log_refuses_a_hard_link_to_another_file(self) -> None:
-        parent = self.state / "appssweep"
+        parent = self.state / "appsweep"
         parent.mkdir(parents=True, mode=0o700)
         victim = self.root / "victim.txt"
         victim.write_text("do not touch\n", encoding="utf-8")
@@ -134,7 +134,7 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(victim.read_text(encoding="utf-8"), "do not touch\n")
 
     def test_audit_log_refuses_group_or_world_writable_folder(self) -> None:
-        parent = self.state / "appssweep"
+        parent = self.state / "appsweep"
         parent.mkdir(parents=True, mode=0o777)
         parent.chmod(0o777)
 
@@ -145,12 +145,36 @@ class AuditTests(unittest.TestCase):
         self.assertIsNotNone(error)
         self.assertIn("writable", error)
 
+    def test_existing_audit_folder_is_tightened_to_0700(self) -> None:
+        for mode in (0o755, 0o711):
+            with self.subTest(mode=oct(mode)):
+                parent = self.state / "appsweep"
+                if parent.exists():
+                    for child in parent.iterdir():
+                        child.unlink()
+                    parent.rmdir()
+                parent.mkdir(parents=True, mode=mode)
+                parent.chmod(mode)
+
+                error = append_cleanup_event(
+                    "cleanup_started",
+                    self.plan,
+                    self.authorization,
+                    home=str(self.home),
+                )
+
+                self.assertIsNone(error)
+                self.assertEqual(stat.S_IMODE(parent.stat().st_mode), 0o700)
+                log = parent / "cleanup-audit.log"
+                self.assertTrue(log.is_file())
+                self.assertEqual(stat.S_IMODE(log.stat().st_mode), 0o600)
+
     def test_audit_path_falls_back_to_user_state_home(self) -> None:
         with patch.dict(os.environ, {"XDG_STATE_HOME": ""}):
             path = audit_log_path(str(self.home))
         self.assertEqual(
             path,
-            str(self.home / ".local" / "state" / "appssweep" / "cleanup-audit.log"),
+            str(self.home / ".local" / "state" / "appsweep" / "cleanup-audit.log"),
         )
 
 

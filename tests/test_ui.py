@@ -8,11 +8,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from appssweep.analyzer import build_report
-from appssweep.categories import CleanupDiscovery
-from appssweep.large_files import numbered_personal_map, personal_file_rows
-from appssweep.models import ScanConfig, ScanResult
-from appssweep.ui import UI, supports_rich
+from appsweep.analyzer import build_report
+from appsweep.categories import CleanupDiscovery
+from appsweep.large_files import numbered_personal_map, personal_file_rows
+from appsweep.models import ScanConfig, ScanResult
+from appsweep.ui import UI, supports_rich
 
 from .helpers import snapshot_for, write_file
 

@@ -10,7 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from appssweep.filesystem import (
+from appsweep.filesystem import (
     MountInfo,
     discover_installation_roots,
     is_mount_boundary,
@@ -18,8 +18,8 @@ from appssweep.filesystem import (
     measure_path,
     read_mountinfo,
 )
-from appssweep.util import is_within as util_is_within
-from appssweep.util import safe_terminal_text
+from appsweep.util import is_within as util_is_within
+from appsweep.util import safe_terminal_text
 
 
 class FilesystemTests(unittest.TestCase):
@@ -215,8 +215,8 @@ class FilesystemTests(unittest.TestCase):
             return SimpleNamespace(st_dev=devices[path])
 
         with (
-            patch("appssweep.filesystem.os.path.isdir", side_effect=fake_isdir),
-            patch("appssweep.filesystem.os.stat", side_effect=fake_stat),
+            patch("appsweep.filesystem.os.path.isdir", side_effect=fake_isdir),
+            patch("appsweep.filesystem.os.stat", side_effect=fake_stat),
         ):
             roots, notes, _mounts = discover_installation_roots(
                 "/home/test", sandboxed=False, mounts=mounts
@@ -237,11 +237,11 @@ class FilesystemTests(unittest.TestCase):
 
         with (
             patch(
-                "appssweep.filesystem.os.path.isdir",
+                "appsweep.filesystem.os.path.isdir",
                 side_effect=lambda path: path in existing,
             ),
             patch(
-                "appssweep.filesystem.os.stat",
+                "appsweep.filesystem.os.stat",
                 side_effect=lambda path: SimpleNamespace(st_dev=devices[path]),
             ),
         ):

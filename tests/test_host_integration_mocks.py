@@ -13,14 +13,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from appssweep.flatpak import discover_flatpak
-from appssweep.log_cleaner import discover_logs, parse_journal_disk_usage
-from appssweep.models import ActionKind
-from appssweep.package_manager import (
+from appsweep.flatpak import discover_flatpak
+from appsweep.log_cleaner import discover_logs, parse_journal_disk_usage
+from appsweep.models import ActionKind
+from appsweep.package_manager import (
     discover_package_cleanup,
     running_kernel_release,
 )
-from appssweep.runner import CommandResult
+from appsweep.runner import CommandResult
 
 from .helpers import FakeRunner, write_file
 
@@ -142,12 +142,12 @@ class MockedHostIntegrationTests(unittest.TestCase):
     def test_journal_without_journalctl_stays_report_only(self) -> None:
         with (
             patch(
-                "appssweep.log_cleaner._measure_journal_directories",
+                "appsweep.log_cleaner._measure_journal_directories",
                 return_value=300 * 1024**2,
             ),
-            patch("appssweep.log_cleaner._analyze_rotated_logs"),
-            patch("appssweep.log_cleaner._analyze_crash_dumps"),
-            patch("appssweep.log_cleaner._analyze_temporary_files"),
+            patch("appsweep.log_cleaner._analyze_rotated_logs"),
+            patch("appsweep.log_cleaner._analyze_crash_dumps"),
+            patch("appsweep.log_cleaner._analyze_temporary_files"),
         ):
             discovery = discover_logs(
                 FakeRunner(mapping={}),
@@ -173,10 +173,10 @@ class MockedHostIntegrationTests(unittest.TestCase):
             handler=handler,
         )
         with (
-            patch("appssweep.log_cleaner._measure_journal_directories", return_value=0),
-            patch("appssweep.log_cleaner._analyze_rotated_logs"),
-            patch("appssweep.log_cleaner._analyze_crash_dumps"),
-            patch("appssweep.log_cleaner._analyze_temporary_files"),
+            patch("appsweep.log_cleaner._measure_journal_directories", return_value=0),
+            patch("appsweep.log_cleaner._analyze_rotated_logs"),
+            patch("appsweep.log_cleaner._analyze_crash_dumps"),
+            patch("appsweep.log_cleaner._analyze_temporary_files"),
         ):
             discovery = discover_logs(fake, include_temporary=False)
 

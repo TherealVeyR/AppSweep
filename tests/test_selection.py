@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import unittest
 
-from appssweep.models import CleanupItem, RiskGroup
-from appssweep.selection import (
+from appsweep.models import CleanupItem, RiskGroup
+from appsweep.selection import (
     SelectionError,
     format_number_set,
     parse_cleanup_selection,
@@ -23,7 +23,7 @@ def cleanup(number: int, group: RiskGroup, eligible: bool = True) -> CleanupItem
         description="description",
         consequences="consequences",
         method="method",
-        action=__import__("appssweep.models", fromlist=["ActionKind"]).ActionKind.REPORT_ONLY,
+        action=__import__("appsweep.models", fromlist=["ActionKind"]).ActionKind.REPORT_ONLY,
         eligible=eligible,
         number=number,
     )

@@ -6,8 +6,8 @@ import os
 import stat
 from pathlib import Path
 
-from appssweep.filetypes import classify_path
-from appssweep.models import FileSnapshot, RiskGroup
+from appsweep.filetypes import classify_path
+from appsweep.models import FileSnapshot, RiskGroup
 
 
 def write_file(path: Path, size: int, byte: bytes = b"x") -> Path:
@@ -32,6 +32,7 @@ def snapshot_for(path: Path) -> FileSnapshot:
         description=file_type.description,
         owner_uid=lstat.st_uid,
         group=RiskGroup.CAREFUL,
+        ctime_ns=getattr(lstat, "st_ctime_ns", 0),
     )
 
 
@@ -73,7 +74,7 @@ class FakeRunner:
         return argv
 
     def run(self, args, *, needs_admin: bool = False, timeout: int = 60, **kwargs):
-        from appssweep.runner import CommandResult
+        from appsweep.runner import CommandResult
 
         self.calls.append(
             {

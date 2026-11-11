@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import unittest
 
-from appssweep.capabilities import (
+from appsweep.capabilities import (
     TOOL_SPECS,
     CapabilityReport,
     detect_capabilities,
