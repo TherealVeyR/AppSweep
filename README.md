@@ -7,7 +7,7 @@ It scans the live filesystem, shows where space is going, lists the 50-ish large
 personal files, and explains every cleanup opportunity before anything is
 changed.
 
-Scanning is read-only. AppSweep does not delete, move, or modify a file during
+Scanning is read only. AppSweep does not delete, move, or modify a file during
 a scan. Cleanup only happens after you select exact items and type `CLEAN` in
 the confirmation prompt.
 
