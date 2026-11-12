@@ -1,9 +1,9 @@
 # AppSweep
 
-**See what is using your Fedora disk. Choose what happens next.**
+**See what is using your disk. Clean it up.**
 
 AppSweep is a safety-first storage analyzer and cleanup assistant for Fedora.
-It scans the live filesystem, shows where space is going, lists the 50 largest
+It scans the live filesystem, shows where space is going, lists the 50-ish largest
 personal files, and explains every cleanup opportunity before anything is
 changed.
 
